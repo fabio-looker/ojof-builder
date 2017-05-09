@@ -214,9 +214,9 @@
 							enum:["BigQuery Standard","Redshift"]
 						},
 					"exploreName":{
-						title:"Explore name",
+						title:"Explore Label",
 						type:"string",
-						pattern:pat.atom
+						pattern:pat.oneLineString
 					},
 					"views":{
 							title:"Views",
@@ -225,11 +225,17 @@
 							items:{
 									type:"object",
 									title:"View",
-									headerTemplate:"{{self.label}}",
+									headerTemplate:"{{self.label}} ({{self.table}})",
 									options:{disable_collapse:true},
 									properties:{
 											"label":{title:"Label",type:"string", pattern:pat.oneLineString},
 											"table":{title:"Table",type:"string", pattern:pat.sql},
+											/*"viewId":{
+												options:{hidden:true},
+												type:"string",
+												watch:{i1:"i1"},
+												template:"{{i1}}"
+											},*/
 											"pk":{
 													type:"object",
 													title:"Primary Key",
@@ -251,8 +257,8 @@
 													format:"compact",
 													title:"[Redshift only]",
 													properties:{
-															dist:{title:"Dist key",type:"string", pattern:pat.atomOrNone, required:false},
-															sort:{title:"Sort key",type:"string", pattern:pat.atomOrNone, required:false}
+															dist:{title:"Dist key",type:"string", pattern:pat.atomOrNone},
+															sort:{title:"Sort key",type:"string", pattern:pat.atomOrNone}
 														}
 												},
 											"fields":{
@@ -291,31 +297,38 @@
 							title:"Normalized relationships",
 							type:"array",
 							format:"table",
+							options:{disable_array_delete_last_row:true,disable_array_delete_all_rows:true,disable_array_reorder:true},
 							items:{
 									type:"object",
-									title:"Relationship",
-									headerTemplate:"{{self.baseTable}} -> {{self.dimensionTable}}",
-									options:{disable_collapse:true},
+									//title:"Relationship",
+									//headerTemplate:"{{self.baseTable}} -> {{self.dimensionTable}}",
+									//options:{disable_collapse:true},
 									properties:{
 											baseTable:{
 													type:"string",
 													title:"Base Table",
+													options:{input_width:"12em"},
 													watch:{views:"views"},
 													enumSource:[{
 															source:"views",
-															title:"{{item.label}}",
-															value:"{{item.label}}"
+															title:"{{item.label}} ({{item.table}})",
+															value:"{{item.label}}_{{i}}"
 														}]
 												},
-										 	foreignKey:{type:"string",title:"Base.FK SQL",pattern:pat.sql},
+										 	foreignKey:{
+												type:"string",
+												title:"Base.FK SQL",
+												options:{input_width:"28em"},
+												pattern:pat.sql},
 											dimTable:{
 													type:"string",
 													title:"Dim. Table",
+													options:{input_width:"12em"},
 													watch:{views:"views"},
 													enumSource:[{
 															source:"views",
-															title:"{{item.label}}",
-															value:"{{item.label}}"
+															title:"{{item.label}} ({{item.table}})",
+															value:"{{item.label}}_{{i}}d" //!!!But if duplicate labels? E.g. License status, labeled as license
 														}]
 												}
 										}
@@ -324,13 +337,15 @@
 					"conformedRelationships":{
 							title:"Conformed relationships",
 							type:"array",
+							format:"tabs",
+							//options:{},
 							items:{
 									type:"object",
 									title:"Relationship",
-									headerTemplate:"{{self.name}}",
+									headerTemplate:"{{self.Label}}",
 									options:{disable_collapse:true},
 									properties:{
-										name:{type:"string",title:"Name"},
+										name:{type:"string",title:"Label"},
 										type:{type:"string",title:"Type",enum:["Date","Other"]}
 										//timeframes
 										//conformedColumns:{type:"array"}
@@ -361,44 +376,31 @@
 	var initialValue={}
 	
 	function customTransform (x){
-			var getJoinName;
-			//if(x.views.map(v=>lookmlName(v.table)).every(unique)){
-			//		getJoinName=joinNameFromTable 
-			//	} else
-			if(x.views.map(v=>lookmlName(v.label)).every(unique)){
-					getJoinName=joinNameFromLabel
-				} else
-			/*if ()*/{
-					getJoinName=joinNameFromTableAndLabel
-				}/* else
-			if (){
-					getJoinName=joinNameFromHash
-				}*/	
+			//var uniqueLabels=x.views.map(v=>lookmlName(v.label)).every(unique)
+
 			return Object.assign(x,{
-					getMJoinName:v=>getJoinName(v)+"_m",
-					getDJoinName:v=>getJoinName(v)+"_d"
+					views:x.views.map((v,i)=>Object.assign(v,{id:i})),
+					getMJoinName:getMJoinName,
+					getDJoinName:getDJoinName,
+					getBJoinName:getBJoinName
 				});
-				
-			//function joinNameFromTable(view){
-			//		return lookmlName(view.table)
-			//	}
-			function joinNameFromLabel(view){
-					return lookmlName(view.label)
+			function getBJoinName(view){ //Base name
+					return lookmlName(view.label)+"_"+view.id
 				}
-			function joinNameFromLabelAndTable(view){
-					return lookmlName(view.label+"_"+view.table)
+			function getMJoinName(view){ //Measure view name
+					return getBJoinName(view)+"m"
 				}
-			/*function joinNameFromHash(){
-					
-				}*/
+			function getDJoinName(view){ //Dimension view name
+					return getBJoinName(view)+"d"
+				}
 		}
 	function lookmlName(s){
-			return s.slice(0,32).replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
+			return s.slice(0,32).replace(/[\s_]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
 		}
 </script>
 <script type="text/x-dot-template" data-name="main">
 	connection: "<<:x.connectionName>>"
-	explore: <<:x.exploreName || "all_the_things">> {
+	explore: <<:lookmlName(x.exploreName)>> {
 		hidden: yes
 
 		# "Base"/"Measure" joins
@@ -437,6 +439,48 @@
 		join: <<:x.getDJoinName(view)>> {
 			type: left_outer
 			relationship: many_to_one
+			required_joins:[
+			<<: x.normalizedRelationships
+				.filter(rel=>lookmlName(rel.dimTable)==x.getDJoinName(view))
+				.map(rel=>lookmlName(rel.baseTable)+"m,"+lookmlName(rel.baseTable)+"d")
+			 	.join(",\n\t\t\t\t")
+			>>
+			]
+			sql_table_name: {%
+				if <<:
+				x.normalizedRelationships
+					.filter(rel=>lookmlName(rel.dimTable)==x.getDJoinName(view))
+					.map(rel=>x.views.find(v=>x.getBJoinName(v)==lookmlName(rel.baseTable)))
+					.map(ancestorView=>[]
+						.concat(
+							["sum","avg","min","max","list"]
+							.map(msr=>ancestorView.fields.map(f=>f[msr] && msr+"_"+lookmlName(f.label)))
+							.reduce(flatten,["count_pk"])
+							.filter(truthy)
+							.map(field=>x.getMJoinName(ancestorView)+"."+field)
+						)
+						.concat(
+							/*TODO Add dimnesion groups
+							["dim,dg"]
+							.map(dim=>view.fields.map(f=>f[dim] && dim+"_"+lookmlName(f.label)))
+							*/
+							ancestorView.fields.map(f=>f["dim"] && lookmlName(f.label))
+							.reduce(flatten,["pk"])
+							.filter(truthy)
+							.map(field=>x.getDJoinName(ancestorView)+"."+field)						
+						)
+					)
+					.reduce(flatten,[])
+					.map(f=>f+"._in_query")
+					.join("\n\t\t\t\tor ")
+				>>
+			%} <<:view.table>> {%
+			else
+			%} (SELECT null as id, null as account_id FROM (SELECT NULL x) p where x IS NOT NULL) {%
+			endif %}
+			;;
+			sql_on:
+			;;
 			#...
 			#TODO templatize this!
 			# This pattern is required when there are multiple levels of
@@ -516,14 +560,14 @@
 	}
 
 	#"Base" (empty) View
-	view: <<:x.exploreName>> {
-		view_label: "[All the things]"
+	view: <<:lookmlName(x.exploreName)>> {
+		view_label: "[<<:x.exploreName>>]"
 		<<? x.dialect=="BigQuery Standard">> #BQ
 		sql_table_name: (SELECT base FROM (SELECT null as base) as btable WHERE base IS NOT NULL);;
 		<<?? x.dialect=="Redshift">> #Redshift
 		derived_table: {
 			sql: (SELECT base FROM (SELECT null as base) as btable WHERE base IS NOT NULL) ;;
-			persist_for: "30 hours"
+			persist_for: "120 hours"
 			distribution: "base"
 			sortkeys: ["base"]
 		}
@@ -633,7 +677,6 @@
 			sql: <<:view.pk.sql>>;;
 		}
 		<<* view.fields :field>>
-
 		<<?field.dim>> 
 		measure: dim_<<:lookmlName(field.label)>> {
 			label: "<<:field.label>>"
@@ -649,7 +692,6 @@
 			<<:field.otherLookml>>
 		}
 		<<?>>
-		
 		<<*>>
 	}
 	<<*>>
