@@ -297,9 +297,27 @@
 									headerTemplate:"{{self.baseTable}} -> {{self.dimensionTable}}",
 									options:{disable_collapse:true},
 									properties:{
-											baseTable:{type:"string",title:"Many table"},
-										 	foreignKey:{type:"string",title:"Many.FK SQL"},
-											foreignKey:{type:"string",title:"One Table"},
+											baseTable:{
+													type:"string",
+													title:"Base Table",
+													watch:{views:"views"},
+													enumSource:[{
+															source:"views",
+															title:"{{item.label}}",
+															value:"{{item.label}}"
+														}]
+												},
+										 	foreignKey:{type:"string",title:"Base.FK SQL",pattern:pat.sql},
+											dimTable:{
+													type:"string",
+													title:"Dim. Table",
+													watch:{views:"views"},
+													enumSource:[{
+															source:"views",
+															title:"{{item.label}}",
+															value:"{{item.label}}"
+														}]
+												}
 										}
 								}
 						},
