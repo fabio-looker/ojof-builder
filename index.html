@@ -87,10 +87,11 @@
 						}
 					var editorValue=editor.getValue()
 					var input=customTransform(editorValue)
+					console.log("Building", input)
 					$(".out").each(function(i,el){
 							try{
 									//NJK $(this).val(templates[this.dataset.name].render(input))
-									$(this).val(templates[this.dataset.name](input))
+									$(this).val(templates[this.dataset.name](input).replace(/\n\s*\n/g,"\n"))
 								}catch(e){
 									console.error(e)
 								}
@@ -229,7 +230,7 @@
 									options:{disable_collapse:true},
 									properties:{
 											"label":{title:"Label",type:"string", pattern:pat.oneLineString},
-											"table":{title:"Table",type:"string", pattern:pat.sql},
+											"table":{title:"Table",type:"string", pattern:pat.atom},
 											/*"viewId":{
 												options:{hidden:true},
 												type:"string",
@@ -240,7 +241,7 @@
 													type:"object",
 													title:"Primary Key",
 													properties:{
-															sql:{title:"SQL",type:"string", pattern:pat.sql},
+															sql:{title:"SQL",type:"string", pattern:pat.atom},
 															/*modes:{
 																	type:"object",
 																	title:"Show",
@@ -300,13 +301,10 @@
 							options:{disable_array_delete_last_row:true,disable_array_delete_all_rows:true,disable_array_reorder:true},
 							items:{
 									type:"object",
-									//title:"Relationship",
-									//headerTemplate:"{{self.baseTable}} -> {{self.dimensionTable}}",
-									//options:{disable_collapse:true},
 									properties:{
-											baseTable:{
+											leftViewName:{
 													type:"string",
-													title:"Base Table",
+													title:"\"Many\" Table",
 													options:{input_width:"12em"},
 													watch:{views:"views"},
 													enumSource:[{
@@ -317,18 +315,18 @@
 												},
 										 	foreignKey:{
 												type:"string",
-												title:"Base.FK SQL",
+												title:"ManyTable.FK",
 												options:{input_width:"28em"},
-												pattern:pat.sql},
-											dimTable:{
+												pattern:pat.atom},
+											rightViewName:{
 													type:"string",
-													title:"Dim. Table",
+													title:"\"One\" Table",
 													options:{input_width:"12em"},
 													watch:{views:"views"},
 													enumSource:[{
 															source:"views",
 															title:"{{item.label}} ({{item.table}})",
-															value:"{{item.label}}_{{i}}d" //!!!But if duplicate labels? E.g. License status, labeled as license
+															value:"{{item.label}}_{{i}}"
 														}]
 												}
 										}
@@ -376,36 +374,78 @@
 	var initialValue={}
 	
 	function customTransform (x){
-			//var uniqueLabels=x.views.map(v=>lookmlName(v.label)).every(unique)
-
 			return Object.assign(x,{
-					views:x.views.map((v,i)=>Object.assign(v,{id:i})),
-					getMJoinName:getMJoinName,
-					getDJoinName:getDJoinName,
-					getBJoinName:getBJoinName
+					views:x.views.map((v,vi)=>Object.assign(v,{
+							n:vi,
+							name:lookmlName(v.label)+"_"+vi,
+							mName:lookmlName(v.label)+"_"+vi+"m",
+							dName:lookmlName(v.label)+"_"+vi+"d",
+							fields:v.fields.map((f,fi)=>Object.assign(f,{
+									n:fi,
+									name:lookmlName(f.label)+"_"+fi
+								}))
+						})),
+					normalizedRelationships:x.normalizedRelationships.map((r,ri)=>Object.assign(r,{
+							leftViewName:lookmlName(r.leftViewName),
+							rightViewName:lookmlName(r.rightViewName),
+						}))
 				});
-			function getBJoinName(view){ //Base name
-					return lookmlName(view.label)+"_"+view.id
-				}
-			function getMJoinName(view){ //Measure view name
-					return getBJoinName(view)+"m"
-				}
-			function getDJoinName(view){ //Dimension view name
-					return getBJoinName(view)+"d"
-				}
 		}
+	// "Custom functions" for use in this template. Pure funtions go here, fn's w/closures go in the template...
 	function lookmlName(s){
-			return s.slice(0,32).replace(/[\s_]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
+			//return s.slice(0,32).replace(/[\s_]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
+			return s.replace(/[\s]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
 		}
+	function measurePaths(view){
+			return (["sum","avg","min","max","list"]
+					.map(measureType=>view.fields.map(field=>field[measureType] && measureType+"_"+lookmlName(field.label)))
+					.reduce(flatten,["count_pk"])
+					.filter(truthy)
+					.map(field=>view.mName+"."+field)
+				)
+		};
+	function dimensionPaths(view){
+			/*TODO Add dimnesion groups
+			["dim,dg"]
+			.map(dim=>view.fields.map(f=>f[dim] && dim+"_"+lookmlName(f.label)))
+			*/
+			return (
+					view.fields.map(field=>field["dim"] && lookmlName(field.label))
+					.reduce(flatten,["pk"])
+					.filter(truthy)
+					.map(field=>view.dName+"."+field)
+				)
+		};
+	
 </script>
 <script type="text/x-dot-template" data-name="main">
+	<<!
+	function parentViewNames() {}
+	function ancestorViews(targetView){
+			var targetViewName=typeof targetView == "string" ? targetView : targetView.name;
+			return recurAncestorNames(targetViewName,6).filter(unique).map(name=>x.views.find(v=>v.name=name));
+		
+			function recurAncestorNames(targetViewName,remainingRecursion){
+					var parentViewNames
+							=x.normalizedRelationships
+							.filter(rel=>rel.rightView==targetViewName)
+							.map(rel=>rel.leftViewName);
+					return (parentViewNames.length && remainingRecursion
+							? parentViewNames.map(p=>recurAncestorNames(p,remainingRecursion-1)).reduce(flatten,parentViewNames)
+							: []
+						);
+				}
+			
+		};
+	>>
+	
 	connection: "<<:x.connectionName>>"
 	explore: <<:lookmlName(x.exploreName)>> {
 		hidden: yes
 
-		# "Base"/"Measure" joins
+		# "Measure" joins
 		<<* x.views :view:v >>
-		join: <<:x.getMJoinName(view)>> {
+		join: <<view.mName>> {
 			type: full_outer
 			view_label: "<<:view.label>>"
 			relationship: one_to_one
@@ -414,19 +454,16 @@
 			<<?? x.dialect=="Redshift" >>
 			#Redshift (Only allows FOJ on merge joins, which require dist & sort key equality)
 			sql_on: 
-					<<:x.getMJoinName(view)>>.<<:view.rs.dist>> = <<:x.exploreName>>.base
-				AND <<:x.getMJoinName(view)>>.<<:view.rs.sort>> = <<:x.exploreName>>.base 
+					<<:view.mName>>.<<:view.rs.dist>> = <<:x.exploreName>>.base
+				AND <<:view.mName>>.<<:view.rs.sort>> = <<:x.exploreName>>.base 
 				<<* x.views.filter((prior,p)=>p<v) :prior:p >>
 				{% if <<:
-					["sum","avg","min","max","list"]
-					.map(msr=>view.fields.map(f=>f[msr] && msr+"_"+lookmlName(f.label)))
-					.reduce(flatten,["count_pk"])
-					.filter(truthy)
-					.map(field=>x.getMJoinName(prior)+"."+field+"._in_query")
+					measurePaths(view)
+					.map(m=>m+"._in_query")
 					.join("\n\t\t\t\t or ")
 				>> %}
-				AND <<:x.getMJoinName(view)>>.<<:view.rs.dist>> = <<:x.getMJoinName(prior)>>.<<:prior.rs.dist>>
-				AND <<:x.getMJoinName(view)>>.<<:view.rs.sort>> = <<:x.getMJoinName(prior)>>.<<:prior.rs.sort>>
+				AND <<:view.mName>>.<<:view.rs.dist>> = <<:prior.mName>>.<<:prior.rs.dist>>
+				AND <<:view.mName>>.<<:view.rs.sort>> = <<:prior.mName>>.<<:prior.rs.sort>>
 				{% endif %}
 				<<*>>
 				;;
@@ -436,125 +473,54 @@
 
 		#"Dimension table" joins
 		<<* x.views :view >>
-		join: <<:x.getDJoinName(view)>> {
+		join: <<:view.dName>> {
 			type: left_outer
 			relationship: many_to_one
 			required_joins:[
-			<<: x.normalizedRelationships
-				.filter(rel=>lookmlName(rel.dimTable)==x.getDJoinName(view))
-				.map(rel=>lookmlName(rel.baseTable)+"m,"+lookmlName(rel.baseTable)+"d")
-			 	.join(",\n\t\t\t\t")
-			>>
+				<<:view.mName>>
+				<<* ancestorViews(view) :aView>>
+				,<<:aView.mName>>
+				,<<:aView.dName>>
+				<<*>>
 			]
 			sql_table_name: {%
-				if <<:
-				x.normalizedRelationships
-					.filter(rel=>lookmlName(rel.dimTable)==x.getDJoinName(view))
-					.map(rel=>x.views.find(v=>x.getBJoinName(v)==lookmlName(rel.baseTable)))
-					.map(ancestorView=>[]
-						.concat(
-							["sum","avg","min","max","list"]
-							.map(msr=>ancestorView.fields.map(f=>f[msr] && msr+"_"+lookmlName(f.label)))
-							.reduce(flatten,["count_pk"])
-							.filter(truthy)
-							.map(field=>x.getMJoinName(ancestorView)+"."+field)
-						)
-						.concat(
-							/*TODO Add dimnesion groups
-							["dim,dg"]
-							.map(dim=>view.fields.map(f=>f[dim] && dim+"_"+lookmlName(f.label)))
-							*/
-							ancestorView.fields.map(f=>f["dim"] && lookmlName(f.label))
-							.reduce(flatten,["pk"])
-							.filter(truthy)
-							.map(field=>x.getDJoinName(ancestorView)+"."+field)						
-						)
-					)
-					.reduce(flatten,[])
-					.map(f=>f+"._in_query")
-					.join("\n\t\t\t\tor ")
-				>>
-			%} <<:view.table>> {%
-			else
-			%} (SELECT null as id, null as account_id FROM (SELECT NULL x) p where x IS NOT NULL) {%
-			endif %}
+				if <<*
+				measurePaths(view)
+				.concat(ancestorViews(view).map(aView=>measurePaths(aView)))
+				.concat(ancestorViews(view).map(aView=>dimensionPaths(aView)))
+				:fieldPath:f
+				>><<?f==0>>if<<??>>or<<?>> <<:fieldPath>>._in_query
+				<<*>>
+				%} <<:view.table>> {%
+				else
+				%} (SELECT null as <<:view.pk.sql>>
+					<<* x.normalizedRelationships :rel>>
+						<<? rel.leftViewName==view.name >>
+						, null as <<:rel.foreignKey>>
+						<<?>>
+					<<*>>
+					FROM (SELECT NULL x) X WHERE x IS NOT NULL) {%
+				endif %}
 			;;
-			sql_on:
-			;;
-			#...
-			#TODO templatize this!
-			# This pattern is required when there are multiple levels of
-			# normalization, e.g. orders -> products -> accounts.
-			# Why? Looker doesn''t automatically join in associated_products
-			# if a user selects something from both accounts and orders/pageviews,
-			# but not from products.
-			# So: I am always requiring this join if accounts is required, but it
-			# changes between products or an empty select as appropriate based on
-			# wheter dependent fields are in the query
-			# ...Also, liquid''s boolean is basic... https://github.com/Shopify/liquid/issues/138
-			sql_table_name:
-			{%
-			  if associated_product.name._in_query
-			  or orders.count._in_query
-			  or orders.total_sales._in_query
-			  or pageviews.count._in_query
-			  or all_the_things.product_conversion_rate._in_query
-			  or products.count_subtotal_by_account._in_query
-			  %}products{%
-			  else
-			  %}
-			(SELECT null as id, null as account_id FROM (SELECT NULL x) p where x IS NOT NULL)
-			{% endif %};;
-			sql_on: ${associated_product.id}=COALESCE({%
-			  if products.count._in_query
-			  or products.count_subtotal._in_query
-			  or products.name._in_query
-			  or products.count_subtotal_by_account._in_query
-			  %}
-			  products.id, {% endif %}{%
-			  if pageviews.count._in_query
-			  or all_the_things.product_conversion_rate._in_query
-			  %}
-			  pageviews.product_id, {% endif %}{%
-			  if orders.count._in_query
-			  or orders.total_sales._in_query
-			  or all_the_things.product_conversion_rate._in_query
-			  %}
-			  orders.product_id, {% endif %}
-			  NULL) ;;
-			  
-		}
-		join: associated_account {
-			view_label: "Accounts"
-			from: accounts
-			fields: [id,employees,name]
-			type: full_outer
-			relationship: many_to_one
-			sql_on: ${associated_account.id}=COALESCE({%
-			  if accounts.count._in_query
-			  or accounts.employees._in_query
-			  or accounts.name._in_query
-			  or accounts.total_employees._in_query
-			  or products.count_subtotal_by_account._in_query
-			  %}
-			  accounts.id, {% endif %}{%
-			  if products.count._in_query
-			  or products.count_subtotal._in_query
-			  %}
-			  products.account_id, {% endif %}{%
-			  if managers.count._in_query
-			  %}
-			  managers.account_id, {% endif %}{%
-			  if pageviews.count._in_query
-			  or orders.count._in_query
-			  or orders.total_sales.in_query
-			  or associated_product.name._in_query
-			  or all_the_things.product_conversion_rate._in_query
-			  or products.count_subtotal_by_account._in_query
-			  %}
-			  ${associated_product.account_id}, {% endif %}
-			  NULL);;
-			  
+			
+			sql_on: <<:view.dName>>.<<:view.pk.sql>>=COALESCE(
+				<<* x.normalizedRelationships
+					.filter(rel=>rel.rightViewName=view.name)
+					:rel>>
+					<<! let base=x.views.find(v=>v.name==rel.leftViewName); >>
+					{%
+						<<* dimensionPaths(base) :measure:m >>
+						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query
+						<<*>>
+					%}<<:base.dName>>.<<:rel.foreignKey>>,{% endif %}
+					{%
+						<<* measurePaths(base) :measure:m >>
+						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query
+						<<*>>
+					%}<<:base.mName>>.<<:rel.foreignKey>>,{% endif %}
+				<<*>>
+				<<:view.mName>>.<<:view.pk.sql>>
+			);;
 		}
 		<<*>>
 	}
@@ -610,7 +576,7 @@
 	}
 
 	<<* x.views :view >>
-	view: <<:x.getMJoinName(view)>> { #Measure view
+	view: <<:view.mName>> { #Measure view
 		label: "<<:view.label>>"
 		sql_table_name: <<:view.table>>;;
 		dimension: pk {
@@ -668,7 +634,7 @@
 		<<*>>
 	}
 
-	view: <<:x.getDJoinName(view)>> { #Dimension view
+	view: <<:view.dName>> { #Dimension view
 		label: "<<:view.label>>"
 		sql_table_name: <<:view.table>>;;
 		dimension: pk {
