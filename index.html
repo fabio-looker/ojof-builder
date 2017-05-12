@@ -412,7 +412,21 @@
 </script>
 <script type="text/x-dot-template" data-name="main">
 	<<!
-	function parentViewNames() {}
+	function righterViews(leftView) {
+			var leftViewName=typeof leftView == "string" ? leftView : leftView.name;
+			return recurRighterNames(leftViewName,6).filter(unique).map(name=>x.views.find(v=>v.name==name));
+			
+			function recurRighterNames(leftViewName,remainingRecursion){
+					var rightViewNames
+							=x.normalizedRelationships
+							.filter(rel=>rel.leftViewName==leftViewName)
+							.map(rel=>rel.rightViewName);
+					return (rightViewNames.length && remainingRecursion
+							? rightViewNames.map(r=>recurRighterNames(r,remainingRecursion-1)).reduce(flatten,rightViewNames)
+							: []
+						);
+				}
+		}
 	function ancestorViews(targetView){
 			var targetViewName=typeof targetView == "string" ? targetView : targetView.name;
 			return recurAncestorNames(targetViewName,6).filter(unique).map(name=>x.views.find(v=>v.name==name));
@@ -447,22 +461,15 @@
 			<<?? x.dialect=="Redshift" >>
 			#Redshift (Only allows FOJ on merge joins, which require dist & sort key equality)
 			sql_on: /**/
-				    ${<<:view.mName>>.dist} = ${<<:x.explore.name>>.base}
-				AND ${<<:view.mName>>.sort} = ${<<:x.explore.name>>.base} 
+				    <<:view.mName>>.<<:view.rs.dist>> = ${<<:x.explore.name>>.base}
+				AND <<:view.mName>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base} 
 				<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
-				{%  <<* x.views
-						.filter(pp=>pp.n<=prior.n)
-						.map(pp=>[]
-								.concat(measurePaths(pp))
-								.concat(dimensionPaths(pp))
-							)
-						.reduce(flatten,[])
-						 :field:f >>
+				{%  <<* [].concat(measurePaths(prior)).concat(dimensionPaths(prior)) :field:f >>
 					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
 					<<*>>
 				%}
-				AND ${<<:view.mName>>.dist} = ${<<:prior.mName>>.dist}
-				AND ${<<:view.mName>>.sort} = ${<<:prior.mName>>.sort}
+				AND <<:view.mName>>.<<:view.rs.dist>> = <<:prior.mName>>.<<:prior.rs.dist>>
+				AND <<:view.mName>>.<<:view.rs.sort>> = <<:prior.mName>>.<<:prior.rs.sort>>
 				{% endif %}
 				<<*>>
 			;;
@@ -470,17 +477,13 @@
 		}
 		<<*>>
 		
-
-		#"Dimension table" joins
+		#Selected "Dimension table" joins
 		<<* x.views :view >>
 		join: <<:view.name>>n {#Null dimension
 			from: <<:view.name>>
-			required_joins:[
-				
-			]
 			fields:[]
 			relationship: one_to_one
-			sql_on:{%
+			sql:{%
 				<<* []
 				.concat(measurePaths(view))
 				.concat(dimensionPaths(view))
@@ -489,14 +492,9 @@
 				:field:f>>
 				<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
 				<<*>>
-				%} LEFT JOIN (
-					SELECT NULL as <<:view.pk.key>>
-					<<* x.normalizedRelationships.filter(rel=>rel.leftViewName==view.name) :rel>>
-					,NULL as <<:rel.foreignKey>>
-					<<*>>
-					FROM (SELECT NULL x ) X WHERE x IS NOT NULL 
-				) as <<:view.dName>> ON FALSE /*
-				{% else %} --*/ {% endif %}
+				%} /* Allow <<:view.dName>> */{% else
+				%}/* Prevent <<:view.dName>>
+				{% endif %}{% if '1'=='0' %}*/{% endif %}
 			;;
 		}
 		join: <<:view.dName>> {
@@ -505,10 +503,11 @@
 			relationship: many_to_one
 			fields:[dimensions*]
 			required_joins:[
-				<<:view.name>>a
 				<<* ancestorViews(view) :aView:a>>
-				,<<:aView.dName>>
+				<<:aView.name>>n,
+				<<:aView.dName>>,
 				<<*>>
+				<<:view.name>>n
 			]
 			
 			sql_on: ${<<:view.dName>>.pk}=COALESCE(
@@ -530,7 +529,14 @@
 						<<*>>
 					%}<<:parentView.mName>>.<<:rel.foreignKey>>,{% endif %}
 				<<*>>
-				${<<:view.mName>>.pk}
+				{%
+					<<* measurePaths(view) :measure:m>>
+					<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query or <<:measure>>._in_filter
+					<<*>>
+				%}
+				<<:view.mName>>.<<:view.pk.key>>,
+				{% endif %}
+				NULL
 			)
 			-- */
 			;;
@@ -696,7 +702,7 @@
 		<<?field.dim>> 
 		dimension: dim_<<:field.name>> {
 			label: "<<:field.label>>"
-			sql: <<:field.sql>> ;;
+			sql: <<:field.sql>> /* ${<<:view.mName>>.pk}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
