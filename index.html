@@ -12,7 +12,9 @@
 <style>
  textarea{font-size:10pt !important;}
  .out {width:100%;height:20em;}
- dl.tabs.vertical>dd{overflow: hidden; text-overflow: ellipsis;}
+ dl.tabs.vertical>dd{overflow: hidden; text-overflow: ellipsis;max-height:4em;}
+ dl.tabs.vertical>dd>a{padding:0.5rem 0.25rem;white-space: pre-line;}
+ .tabs-content>div>h3{overflow: hidden; text-overflow: ellipsis;max-height:4em;white-space: pre-line;}
 </style>
 <script>
 	// Set the JSONEditor CSS theme and icon library globally
@@ -220,6 +222,34 @@
 						type:"string",
 						pattern:pat.oneLineString
 					},
+					"conformedDimensions":{
+							title:"Conformed Dimensions",
+							type:"array",
+							format:"tabs",
+							//options:{},
+							items:{
+									type:"object",
+									title:"CoDim",
+									headerTemplate:"{{self.label}}",
+									options:{disable_collapse:true},
+									properties:{
+											label:{type:"string",title:"Label"},
+											viewLabel:{
+													type:"string",
+													title:"Dispay in view",
+													watch:{views:"views"},
+													enumSource:[{
+															source:["[Base view]"]
+														},{
+															source:"views",
+															title:"{{item.label}}",
+															value:"{{item.label}}"
+														}]
+												},
+											type:{type:"string",title:"Type",enum:["Date","Other"]}
+										}
+								}
+						},
 					"views":{
 							title:"Views",
 							type:"array",
@@ -263,11 +293,26 @@
 																	label:{title:"Label",type:"string", pattern:pat.oneLineString},
 																	sql:{title:"SQL",type:"string", pattern:pat.sql},
 																	dim:{type:"boolean",format:"checkbox",title:"Dimension"},
+																	ddg:{type:"boolean",format:"checkbox",title:"Dates"},
 																	sum:{type:"boolean",format:"checkbox",title:"Sum"},
 																	avg:{type:"boolean",format:"checkbox",title:"Average"},
 																	min:{type:"boolean",format:"checkbox",title:"Min"},
 																	max:{type:"boolean",format:"checkbox",title:"Max"},
 																	list:{type:"boolean",format:"checkbox",title:"List"},
+																	codim:{
+																			type:"string",
+																			title:"Conformed Dimension",
+																			watch:{codims:"conformedDimensions"},
+																			enumSource:[{
+																					"source": [{"value": "","title": ""}],
+																					"title": "{{item.title}}",
+																					"value": "{{item.value}}"
+																				},{
+																					source:"codims",
+																					title:"{{item.label}}",
+																					value:"{{item.label}}_{{i}}"
+																				}]
+																		},
 																	"otherLookml":{title:"Other LookML", type:"string", format:"textarea"}
 																}
 														}
@@ -295,10 +340,11 @@
 														}]
 												},
 										 	foreignKey:{
-												type:"string",
-												title:"ManyTable.FK",
-												options:{input_width:"28em"},
-												pattern:pat.atom},
+													type:"string",
+													title:"ManyTable.FK",
+													options:{input_width:"28em"},
+													pattern:pat.atom
+												},
 											rightViewName:{
 													type:"string",
 													title:"\"One\" Table",
@@ -312,25 +358,8 @@
 												}
 										}
 								}
-						},
-					"conformedRelationships":{
-							title:"Conformed relationships",
-							type:"array",
-							format:"tabs",
-							//options:{},
-							items:{
-									type:"object",
-									title:"Relationship",
-									headerTemplate:"{{self.Label}}",
-									options:{disable_collapse:true},
-									properties:{
-										name:{type:"string",title:"Label"},
-										type:{type:"string",title:"Type",enum:["Date","Other"]}
-										//timeframes
-										//conformedColumns:{type:"array"}
-									}
-								}
-						},
+						}
+						,
 					"timeframes":{
 							title:"Timeframes",
 							type:"array",
@@ -341,7 +370,7 @@
 											"year",
 											"month",
 											"week",
-											"day",
+											"date",
 											"hour",
 											"hour_of_day",
 											"day_of_week",
@@ -370,24 +399,60 @@
 							name:lookmlName(v.label)+"_"+vi,
 							mName:lookmlName(v.label)+"_"+vi+"m",
 							dName:lookmlName(v.label)+"_"+vi+"d",
-							isTableRef:!!v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*\s*$/),
+							isTableRef:!!v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)?\s*$/),
 							fields:v.fields.map((f,fi)=>Object.assign({},f,{
 									n:fi,
 									viewName:lookmlName(v.label)+"_"+vi,
 									name:lookmlName(f.label)+"_"+fi,
+									codim:f.codim?lookmlName(f.codim):undefined,
 									sql:f.sql.match(/^[_a-zA-Z][_a-zA-Z0-9$]*$|^"[^"]+"$/)?"${TABLE}."+f.sql:f.sql
 								}))
 						})),
 					normalizedRelationships:x.normalizedRelationships.map((r,ri)=>Object.assign({},r,{
 							leftViewName:lookmlName(r.leftViewName),
 							rightViewName:lookmlName(r.rightViewName),
+						})),
+					conformedDimensions:x.conformedDimensions.map((c,ci)=>Object.assign({},c,{
+							n:ci,
+							name:lookmlName(c.label)+"_"+ci
 						}))
 				});
 		}
-	// "Custom functions" for use in this template. Pure funtions go here, fn's w/closures go in the template...
-	function lookmlName(s){
-			return s.replace(/[\s]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
-		}
+		function lookmlName(s){
+				if(!s || !s.trim || !s.trim()){throw "Non-empty string required for LookML name";}
+				return s.replace(/[\s]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
+			};	
+
+</script>
+<script type="text/x-dot-template" data-name="main">
+	<<!
+	function viewFromName(name){return x.views.find(v=>v.name==name)};
+	function righterViews(baseView) {
+			var baseViewName=typeof baseView == "string" ? baseView : baseView.name;
+			return recurNamesInDirection(baseViewName,"right",6).filter(unique).map(viewFromName);
+		};
+	function lefterViews(baseView){
+			var baseViewName=typeof baseView == "string" ? baseView : baseView.name;
+			return recurNamesInDirection(baseViewName,"left",6).filter(unique).map(viewFromName);
+		};
+	function recurNamesInDirection(baseViewName,dir,remainingRecursion){
+			var oppDir=(dir=="left"?"right":"left");
+			var immediateViewNames
+					=x.normalizedRelationships
+					.filter(rel=>rel[oppDir+"ViewName"]==baseViewName)
+					.map(rel=>rel[dir+"ViewName"]);
+			return (immediateViewNames.length && remainingRecursion
+					? immediateViewNames.map(p=>recurNamesInDirection(p,dir,remainingRecursion-1)).reduce(flatten,immediateViewNames)
+					: []
+				);			
+		};
+	function sqlString(s){
+			switch (x.dialect){
+					case 'Redshift': /* ??? Thanks Amazon.... http://docs.aws.amazon.com/redshift/latest/dg/r_Literals.html */
+					case 'BigQuery Standard': /* https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#string-and-bytes-literals */
+							return "'"+(s||'').replace(/\\/g,"\\\\").replace(/'/g,"\\'")+"'"
+				}
+		};
 	function measureNames(view){
 			return (["sum","avg","min","max","list"]
 					.map(measureType=>view.fields.map(field=>field[measureType] && measureType+"_"+field.name))
@@ -399,8 +464,14 @@
 			return measureNames(view).map(field=>view.mName+"."+field)
 		};
 	function dimensionNames(view){
-			return (["dim","dg"]
-					.map(dimensionType=>view.fields.map(field=>field[dimensionType] && dimensionType+"_"+field.name))
+			return (
+					[{flag:"dim", prefix:"dim_", suffix:""}]
+					.concat(x.timeframes.map(t=>({flag:"ddg", prefix:"ddg_", suffix:"_"+t})))
+					.map(dimensionType=>
+							view.fields.map(field=>
+									field[dimensionType.flag] && dimensionType.prefix+field.name+dimensionType.suffix
+								)
+						)
 					.reduce(flatten,["pk"])
 					.filter(truthy)
 				)
@@ -408,43 +479,11 @@
 	function dimensionPaths(view){
 			return dimensionNames(view).map(field=>view.dName+"."+field)
 		};
-
-</script>
-<script type="text/x-dot-template" data-name="main">
-	<<!
-	function righterViews(leftView) {
-			var leftViewName=typeof leftView == "string" ? leftView : leftView.name;
-			return recurRighterNames(leftViewName,6).filter(unique).map(name=>x.views.find(v=>v.name==name));
-			
-			function recurRighterNames(leftViewName,remainingRecursion){
-					var rightViewNames
-							=x.normalizedRelationships
-							.filter(rel=>rel.leftViewName==leftViewName)
-							.map(rel=>rel.rightViewName);
-					return (rightViewNames.length && remainingRecursion
-							? rightViewNames.map(r=>recurRighterNames(r,remainingRecursion-1)).reduce(flatten,rightViewNames)
-							: []
-						);
-				}
+	function fieldPaths(view){
+			return measurePaths(view).concat(dimensionPaths(view))
 		}
-	function ancestorViews(targetView){
-			var targetViewName=typeof targetView == "string" ? targetView : targetView.name;
-			return recurAncestorNames(targetViewName,6).filter(unique).map(name=>x.views.find(v=>v.name==name));
-		
-			function recurAncestorNames(targetViewName,remainingRecursion){
-					var parentViewNames
-							=x.normalizedRelationships
-							.filter(rel=>rel.rightViewName==targetViewName)
-							.map(rel=>rel.leftViewName);
-					return (parentViewNames.length && remainingRecursion
-							? parentViewNames.map(p=>recurAncestorNames(p,remainingRecursion-1)).reduce(flatten,parentViewNames)
-							: []
-						);
-				}
-			
-		};
 	>>
-	
+	# Warning:  This file is programatically generated (Your changes will be overwritten)
 	connection: "<<:x.connectionName>>"
 	explore: <<:x.explore.name>> {
 		label:"<<:x.explore.label>>"
@@ -464,7 +503,7 @@
 				    <<:view.mName>>.<<:view.rs.dist>> = ${<<:x.explore.name>>.base}
 				AND <<:view.mName>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base} 
 				<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
-				{%  <<* [].concat(measurePaths(prior)).concat(dimensionPaths(prior)) :field:f >>
+				{%  <<* fieldPaths(prior) :field:f >>
 					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
 					<<*>>
 				%}
@@ -483,12 +522,13 @@
 			from: <<:view.name>>
 			fields:[]
 			relationship: one_to_one
+			required_joins:[
+				<<* lefterViews(view) :lView:a>>
+				<<?a!=0>>,<<?>><<:lView.dName>>
+				<<*>>
+			]
 			sql:{%
-				<<* []
-				.concat(measurePaths(view))
-				.concat(dimensionPaths(view))
-				.concat(ancestorViews(view).map(aView=>measurePaths(aView)))
-				.concat(ancestorViews(view).map(aView=>dimensionPaths(aView)))
+				<<* lefterViews(view).map(fieldPaths).reduce(flatten,fieldPaths(view))
 				:field:f>>
 				<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
 				<<*>>
@@ -501,41 +541,37 @@
 			from: <<:view.name>>
 			type: left_outer
 			relationship: many_to_one
-			fields:[dimensions*]
+			fields:[dimensions*,codim_selectors*]
 			required_joins:[
-				<<* ancestorViews(view) :aView:a>>
-				<<:aView.name>>n,
-				<<:aView.dName>>,
-				<<*>>
 				<<:view.name>>n
 			]
 			
 			sql_on: ${<<:view.dName>>.pk}=COALESCE(
-				<<* x.normalizedRelationships
-					.filter(rel=>rel.rightViewName==view.name)
-					:rel>>
-					<<! let parentView=x.views.find(v=>v.name==rel.leftViewName); >>
-					{%
-						<<* dimensionPaths(parentView)
-							.concat(ancestorViews(parentView).map(dimensionPaths).reduce(flatten,[]))
-							.concat(ancestorViews(parentView).map(measurePaths).reduce(flatten,[]))
-							:field:f >>
-						<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
-						<<*>>
-					%}<<:parentView.dName>>.<<:rel.foreignKey>>,{% endif %}
+				{%
+					<<* fieldPaths(view) :field:f>>
+					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
+					<<*>>
+				%}--Own view has dims or measures selected, so self.mView will be joined. Include via pk
+				<<:view.mName>>.<<:view.pk.key>>,{% endif %}
+				<<* x.normalizedRelationships :rel>>
+				<<? rel.rightViewName==view.name>>
+					<<! let parentView=viewFromName(rel.leftViewName); >>
 					{%
 						<<* measurePaths(parentView) :measure:m >>
 						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query or <<:measure>>._in_filter
 						<<*>>
-					%}<<:parentView.mName>>.<<:rel.foreignKey>>,{% endif %}
+					%}--Parent view has dims or measures selected, so parent.mView will be joined. Include via fk
+					<<:parentView.mName>>.<<:rel.foreignKey>>,{% endif %}
+					{%
+						<<* dimensionPaths(parentView)
+							.concat(lefterViews(parentView).map(fieldPaths).reduce(flatten,[]))
+							:field:f >>
+						<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
+						<<*>>
+					%}--Ancestor view has dims or measures selected, so parent.dView will be joined. Include via fk
+					<<:parentView.dName>>.<<:rel.foreignKey>>,{% endif %}
+				<<?>>
 				<<*>>
-				{%
-					<<* measurePaths(view) :measure:m>>
-					<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query or <<:measure>>._in_filter
-					<<*>>
-				%}
-				<<:view.mName>>.<<:view.pk.key>>,
-				{% endif %}
 				NULL
 			)
 			-- */
@@ -563,31 +599,77 @@
 			hidden: yes
 			sql: ${TABLE}.base ;;
 		}
-		# TODO
-		#dimension_group: combined {
-		#	type: time
-		#	timeframes: [date,week,month]
-		#	sql: ${combined_date_internal} ;;
-		#}
-		#dimension: combined_date_internal {
-		#	hidden: yes
-		#	sql: COALESCE({%
-		#	  if pageviews.count._in_query
-		#	  or all_the_things.product_conversion_rate._in_query
-		#	  %}
-		#	  pageviews.pv_date, {% endif %}{%
-		#	  if orders.count._in_query
-		#	  or orders.total_sales._in_query
-		#	  or all_the_things.product_conversion_rate._in_query
-		#	  %}
-		#	  CASE {% parameter orders.combined_date_on %}
-		#	  WHEN 'Order Date' THEN orders.order_date
-		#	  WHEN 'Shipped Date' THEN orders.shipped_date
-		#	  ELSE orders.order_date
-		#	  END, {% endif %}
-		#	  CAST(NULL as timestamp)
-		#	);;
-		#}
+		<<* x.conformedDimensions :codim:c>>
+		<<? codim.type=="Date">>dimension_group<<??>>dimension<<?>>: <<:codim.name>> {
+				view_label: <<? codim.viewLabel=="[Base view]">>"[<<:x.explore.label>>]"<<??>>"<<:codim.viewLabel>>"<<?>>
+				<<? codim.type=="Date">>
+				type: time
+				timeframes: [<<:x.timeframes.join(",")>>]
+				group_label: "<<:codim.label>>"
+				label: " "
+				<<??>>
+				label: "<<:codim.label>>"
+				<<?>>
+				sql: COALESCE(
+					<<* x.views :view:v>>
+					<<* view.fields :field:f>>
+						<<? field.codim == codim.name >>
+							{%
+								<<* dimensionPaths(view)
+									.concat(lefterViews(view).map(dimensionPaths).reduce(flatten,[]))
+								:relatedField:r>>
+								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+								<<*>>
+							%}
+								{%
+									<<* fieldPaths(view)
+										.concat(righterViews(view).map(fieldPaths).reduce(flatten,[]))
+									:relatedField:r>>
+									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+									<<*>>
+								%}
+									<<! let dSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.dName);>>
+									<<? view.fields.filter(secondField=>secondField.codim==field.codim).length>1 >>
+										CASE WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}<<:sqlString(field.label)>>{% endcondition%}
+										     THEN <<:dSql>> ELSE NULL END,
+									<<??>>
+										<<:dSql>>,
+									<<?>>
+								{% endif %}
+							{% endif %}
+							{%
+								<<* measurePaths(view)
+									.concat(lefterViews(view).map(measurePaths).reduce(flatten,[]))
+								:relatedField:r>>
+								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+								<<*>>
+							%}
+								{%
+									<<* fieldPaths(view)
+										.concat(righterViews(view).map(fieldPaths).reduce(flatten,[]))
+									:relatedField:r>>
+									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+									<<*>>
+								%}
+									<<! let mSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.mName);>>
+									<<? view.fields.filter(secondField=>secondField.codim==field.codim).length>1 >>
+										CASE WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}<<:sqlString(field.label)>>{% endcondition%}
+										     THEN <<:mSql>> ELSE NULL END,
+									<<??>>
+										<<:mSql>>,
+									<<?>>
+								{% endif %}
+							{% endif %}
+						<<?>>
+					<<*>>
+					<<*>>
+					NULL
+				);;
+			}
+		<<*>>
+		
+		# Maybe add this pattern to the generator too?
+		#
 		#measure: product_conversion_rate {
 		#	type: number
 		#	value_format_name: decimal_3
@@ -622,6 +704,10 @@
 			sql:${TABLE}.<<:view.rs.sort>>;;
 		}
 		<<?>>
+		dimension: require {
+			hidden:yes
+			sql: ;;
+		}
 		# PK Fields
 		dimension: pk {
 			hidden: <<:view.pk.dim ? "no" : "yes">>
@@ -702,19 +788,43 @@
 		<<?field.dim>> 
 		dimension: dim_<<:field.name>> {
 			label: "<<:field.label>>"
-			sql: <<:field.sql>> /* ${<<:view.mName>>.pk}*/;;
+			sql: <<:field.sql>> /* ${<<:view.mName>>.require}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
-		<<?field.dg>> #TODO
-		dimension_group: dg_<<:field.name>> {
+		<<?field.ddg>>
+		dimension_group: ddg_<<:field.name>> {
 			group_label: "<<:field.label>>"
-			timeframes: [<<:timeframes.join(",")>>]
+			label: " "
+			type: time
+			timeframes: [<<:x.timeframes.join(",")>>]
 			sql: <<:field.sql>> ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
 		<<*>>
+		#
+		# Codim selector(s)
+		#
+		set: codim_selectors{
+			fields:[
+			<<* x.conformedDimensions :codim:c>>
+			<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>
+			<<?c>0>>,<<?>> codim_switch_<<:codim.name>>
+			<<?>>
+			<<*>>
+			]
+		}
+		<<* x.conformedDimensions :codim:c>>
+			<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>
+			filter: codim_switch_<<:codim.name>> {
+				label: "<<?codim.type=='Date'>>Date<<??>>Field<<?>> for <<:codim.label>>"
+				type: string
+				suggestions: ["<<:view.fields.filter(f=>f.codim==codim.name).map(f=>f.label).join('","')>>"]
+			}
+			<<?>>
+		<<*>>
+		
 	}
 	<<*>>
 </script>
