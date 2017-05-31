@@ -191,6 +191,7 @@
 	var pat={
 			sql:"^[^;]+(;[^;]+)*$",
 			oneLineString:"^[^\"\\n]+$",
+			oneLineStringOrNone:"^[^\"\\n]*$",
 			multiLineStringPattern:"^[^\"]+$",
 			atom:"^[a-zA-Z0-9_]+$",
 			atomOrNone:"^[a-zA-Z0-9_]*$"
@@ -203,7 +204,7 @@
 					"connectionName":{
 							title:"Name of your connection",
 							type:"string",
-							pattern:pat.oneLineString
+							pattern:pat.oneLineStringOrNone
 						},
 					"dialect":{
 							title:"SQL Dialect",
@@ -490,7 +491,7 @@
 	# Generator v<<:x.generator.v>> (<<:x.generator.date>>)
 	# Generated on <<:(new Date()).toISOString().slice(0,10)>>
 	
-	connection: "<<:x.connectionName>>"
+	<<?x.connectionName>>connection: "<<:x.connectionName>>"<<?>>
 	explore: <<:x.explore.name>> {
 		label:"<<:x.explore.label>>"
 
