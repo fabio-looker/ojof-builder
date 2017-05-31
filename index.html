@@ -1,6 +1,7 @@
 <!doctype html >
 <html>
 <head>
+<script>var version={v:"1.0",date:"2017-05-31"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -246,7 +247,7 @@
 															value:"{{item.label}}"
 														}]
 												},
-											type:{type:"string",title:"Type",enum:["Date","Other"]}
+											type:{type:"string",title:"Type",enum:["","date","string","number","yesno"]}
 										}
 								}
 						},
@@ -290,16 +291,16 @@
 															headerTemplate:"{{self.label}}",
 															options:{disable_collapse:true},
 															properties:{
-																	label:{title:"Label",type:"string", pattern:pat.oneLineString},
-																	sql:{title:"SQL",type:"string", pattern:pat.sql},
-																	dim:{type:"boolean",format:"checkbox",title:"Dimension"},
-																	ddg:{type:"boolean",format:"checkbox",title:"Dates"},
-																	sum:{type:"boolean",format:"checkbox",title:"Sum"},
-																	avg:{type:"boolean",format:"checkbox",title:"Average"},
-																	min:{type:"boolean",format:"checkbox",title:"Min"},
-																	max:{type:"boolean",format:"checkbox",title:"Max"},
-																	list:{type:"boolean",format:"checkbox",title:"List"},
-																	codim:{
+																	label:{propertyOrder:1,title:"Label",type:"string", pattern:pat.oneLineString},
+																	sql:{propertyOrder:2,title:"SQL",type:"string", pattern:pat.sql},
+																	type:{propertyOrder:3,title:"Datatype",type:"string",enum:["","string","number","date","yesno"]},
+																	dim:{propertyOrder:4,type:"boolean",format:"checkbox",title:"Dimension"},
+																	sum:{propertyOrder:6,type:"boolean",format:"checkbox",title:"Sum"},
+																	avg:{propertyOrder:7,type:"boolean",format:"checkbox",title:"Average"},
+																	min:{propertyOrder:8,type:"boolean",format:"checkbox",title:"Min"},
+																	max:{propertyOrder:9,type:"boolean",format:"checkbox",title:"Max"},
+																	list:{propertyOrder:10,type:"boolean",format:"checkbox",title:"List"},
+																	codim:{propertyOrder:11,
 																			type:"string",
 																			title:"Conformed Dimension",
 																			watch:{codims:"conformedDimensions"},
@@ -313,7 +314,7 @@
 																					value:"{{item.label}}_{{i}}"
 																				}]
 																		},
-																	"otherLookml":{title:"Other LookML", type:"string", format:"textarea"}
+																	"otherLookml":{propertyOrder:1001,title:"Other LookML", type:"string", format:"textarea"}
 																}
 														}
 												}
@@ -390,6 +391,7 @@
 	
 	function customTransform (x){
 			return Object.assign({},x,{
+					generator:version,
 					explore:{
 							label:x.explore,
 							name:lookmlName(x.explore)
@@ -404,6 +406,8 @@
 									n:fi,
 									viewName:lookmlName(v.label)+"_"+vi,
 									name:lookmlName(f.label)+"_"+fi,
+									dim:f.dim && f.type!="date",
+									ddg:f.dim && f.type=="date",
 									codim:f.codim?lookmlName(f.codim):undefined,
 									sql:f.sql.match(/^[_a-zA-Z][_a-zA-Z0-9$]*$|^"[^"]+"$/)?"${TABLE}."+f.sql:f.sql
 								}))
@@ -472,9 +476,15 @@
 									field[dimensionType.flag] && dimensionType.prefix+field.name+dimensionType.suffix
 								)
 						)
-					.reduce(flatten,["pk"])
+					.reduce(flatten,["dim_pk"])
 					.filter(truthy)
 				)
+		};
+	function codimNames(codim){
+			return (codim.type!="date"
+					? [codim.name]
+					: x.timeframes.map(t=>codim.name+"_"+t)
+				);
 		};
 	function dimensionPaths(view){
 			return dimensionNames(view).map(field=>view.dName+"."+field)
@@ -484,6 +494,10 @@
 		}
 	>>
 	# Warning:  This file is programatically generated (Your changes will be overwritten)
+	# OJOF Generator by Fabio
+	# Generator v<<:x.generator.v>> (<<:x.generator.date>>)
+	# Generated on <<:(new Date()).toISOString().slice(0,10)>>
+	
 	connection: "<<:x.connectionName>>"
 	explore: <<:x.explore.name>> {
 		label:"<<:x.explore.label>>"
@@ -504,12 +518,34 @@
 				AND <<:view.mName>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base} 
 				<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
 				{%  <<* fieldPaths(prior) :field:f >>
-					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
+					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
 					<<*>>
 				%}
 				AND <<:view.mName>>.<<:view.rs.dist>> = <<:prior.mName>>.<<:prior.rs.dist>>
 				AND <<:view.mName>>.<<:view.rs.sort>> = <<:prior.mName>>.<<:prior.rs.sort>>
 				{% endif %}
+				<<*>>
+				<<* dimensionNames(view) :dimension:d>>
+					{% if <<:view.dName>>.<<:dimension>>._is_filtered %}
+						AND {%condition <<:view.dName>>.<<:dimension>> %} ${<<:view.mName>>.<<:dimension>>} {% endcondition %}
+					{% endif %}
+				<<*>>
+				<<* x.conformedDimensions :codim:c>>
+				<<* view.fields :field:f>>
+					<<? field.codim == codim.name >>
+					<<! let mSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.mName);>>
+					<<* codimNames(codim) :typedName:t>>
+						{% if <<:x.explore.name>>.<<:typedName>>._is_filtered %}
+							<<? view.fields.filter(secondField=>secondField.codim==field.codim).length>1 >>
+							AND CASE WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}<<:sqlString(field.label)>>{% endcondition%}
+									 THEN {% condition <<:x.explore.name>>.<<:typedName>> %}<<:mSql>>{% endcondition %} ELSE NULL END
+							<<??>>
+							AND {% condition <<:x.explore.name>>.<<:typedName>> %}<<:mSql>>{% endcondition %}
+							<<?>>
+						{% endif %}
+					<<*>>
+					<<?>>
+				<<*>>
 				<<*>>
 			;;
 	 		<<?>>
@@ -530,7 +566,7 @@
 			sql:{%
 				<<* lefterViews(view).map(fieldPaths).reduce(flatten,fieldPaths(view))
 				:field:f>>
-				<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
+				<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
 				<<*>>
 				%} /* Allow <<:view.dName>> */{% else
 				%}/* Prevent <<:view.dName>>
@@ -549,7 +585,7 @@
 			sql_on: ${<<:view.dName>>.pk}=COALESCE(
 				{%
 					<<* fieldPaths(view) :field:f>>
-					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
+					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
 					<<*>>
 				%}--Own view has dims or measures selected, so self.mView will be joined. Include via pk
 				<<:view.mName>>.<<:view.pk.key>>,{% endif %}
@@ -558,7 +594,7 @@
 					<<! let parentView=viewFromName(rel.leftViewName); >>
 					{%
 						<<* measurePaths(parentView) :measure:m >>
-						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query or <<:measure>>._in_filter
+						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query or <<:measure>>._is_filtered
 						<<*>>
 					%}--Parent view has dims or measures selected, so parent.mView will be joined. Include via fk
 					<<:parentView.mName>>.<<:rel.foreignKey>>,{% endif %}
@@ -566,7 +602,7 @@
 						<<* dimensionPaths(parentView)
 							.concat(lefterViews(parentView).map(fieldPaths).reduce(flatten,[]))
 							:field:f >>
-						<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._in_filter
+						<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
 						<<*>>
 					%}--Ancestor view has dims or measures selected, so parent.dView will be joined. Include via fk
 					<<:parentView.dName>>.<<:rel.foreignKey>>,{% endif %}
@@ -600,14 +636,15 @@
 			sql: ${TABLE}.base ;;
 		}
 		<<* x.conformedDimensions :codim:c>>
-		<<? codim.type=="Date">>dimension_group<<??>>dimension<<?>>: <<:codim.name>> {
+		<<? codim.type=="date">>dimension_group<<??>>dimension<<?>>: <<:codim.name>> {
 				view_label: <<? codim.viewLabel=="[Base view]">>"[<<:x.explore.label>>]"<<??>>"<<:codim.viewLabel>>"<<?>>
-				<<? codim.type=="Date">>
+				<<? codim.type=="date">>
 				type: time
 				timeframes: [<<:x.timeframes.join(",")>>]
 				group_label: "<<:codim.label>>"
 				label: " "
 				<<??>>
+				<<?codim.type>>type: <<:codim.type>><<?>>
 				label: "<<:codim.label>>"
 				<<?>>
 				sql: COALESCE(
@@ -618,14 +655,14 @@
 								<<* dimensionPaths(view)
 									.concat(lefterViews(view).map(dimensionPaths).reduce(flatten,[]))
 								:relatedField:r>>
-								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
 								<<*>>
 							%}
 								{%
 									<<* fieldPaths(view)
 										.concat(righterViews(view).map(fieldPaths).reduce(flatten,[]))
 									:relatedField:r>>
-									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
 									<<*>>
 								%}
 									<<! let dSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.dName);>>
@@ -641,14 +678,14 @@
 								<<* measurePaths(view)
 									.concat(lefterViews(view).map(measurePaths).reduce(flatten,[]))
 								:relatedField:r>>
-								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
 								<<*>>
 							%}
 								{%
 									<<* fieldPaths(view)
 										.concat(righterViews(view).map(fieldPaths).reduce(flatten,[]))
 									:relatedField:r>>
-									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._in_filter
+									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
 									<<*>>
 								%}
 									<<! let mSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.mName);>>
@@ -710,12 +747,17 @@
 		}
 		# PK Fields
 		dimension: pk {
-			hidden: <<:view.pk.dim ? "no" : "yes">>
-			label: "<<:view.label>> ID"
+			hidden: yes
 			sql: ${TABLE}.<<:view.pk.key>>;;
 		}
+		dimension: dim_pk {
+			hidden: <<:view.pk.dim ? "no" : "yes">>
+			label: "<<:view.label>> ID"
+			sql: ${TABLE}.<<:view.pk.key>>  /* ${<<:view.mName>>.require}*/;;
+		} 
 		measure: count_pk {
 			hidden: <<:view.pk.count ? "no" : "yes">>
+			label: "<<:view.label>> Count"
 			type: number
 			sql: CASE WHEN MIN(${pk}) IS NULL THEN NULL ELSE COUNT(${pk}) END ;;
 		}
@@ -750,7 +792,12 @@
 		
 		<<?field.min>> 
 		measure: min_<<:field.name>> {
-			label: "Min of <<:field.label>>"
+			type: <<:field.type>>
+			<<?field.type=="date">>
+			label: "Earliest <<:field.label>> Date"
+			<<??>>
+			label: "Max of <<:field.label>>"
+			<<?>>
 			sql: MIN(<<:field.sql>>) ;;
 			<<:field.otherLookml>>
 		}
@@ -758,7 +805,12 @@
 		
 		<<?field.max>> 
 		measure: max_<<:field.name>> {
+			type: <<:field.type>>
+			<<?field.type=="date">>
+			label: "Latest <<:field.label>> Date"
+			<<??>>
 			label: "Max of <<:field.label>>"
+			<<?>>
 			sql: MAX(<<:field.sql>>) ;;
 			<<:field.otherLookml>>
 		}
@@ -766,6 +818,7 @@
 		
 		<<?field.list>> 
 		measure: list_<<:field.name>> {
+			type: string
 			label: "List of <<:field.label>>"
 			<<? x.dialect=="Redshift">>sql: LISTAGG(<<:field.sql>>,', ') ;;<<?>>
 			<<? x.dialect=="BigQuery Standard">>sql: GROUP_CONCAT(<<:field.sql>>) ;;<<?>>
@@ -785,8 +838,9 @@
 			]
 		}
 		<<* view.fields :field>>
-		<<?field.dim>> 
+		<<?field.dim>>
 		dimension: dim_<<:field.name>> {
+			<<?field.type>>type: <<:field.type>><<?>>
 			label: "<<:field.label>>"
 			sql: <<:field.sql>> /* ${<<:view.mName>>.require}*/;;
 			<<:field.otherLookml>>
@@ -798,7 +852,7 @@
 			label: " "
 			type: time
 			timeframes: [<<:x.timeframes.join(",")>>]
-			sql: <<:field.sql>> ;;
+			sql: <<:field.sql>>  /* ${<<:view.mName>>.require}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -818,7 +872,7 @@
 		<<* x.conformedDimensions :codim:c>>
 			<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>
 			filter: codim_switch_<<:codim.name>> {
-				label: "<<?codim.type=='Date'>>Date<<??>>Field<<?>> for <<:codim.label>>"
+				label: "<<?codim.type=='date'>>Date<<??>>Field<<?>> for <<:codim.label>>"
 				type: string
 				suggestions: ["<<:view.fields.filter(f=>f.codim==codim.name).map(f=>f.label).join('","')>>"]
 			}
