@@ -1,7 +1,7 @@
 <!doctype html >
 <html>
 <head>
-<script>var version={v:"1.0.1",date:"2017-05-31"}</script>
+<script>var version={v:"1.0.2",date:"2017-05-31"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -517,28 +517,6 @@
 				AND <<:view.mName>>.<<:view.rs.sort>> = <<:prior.mName>>.<<:prior.rs.sort>>
 				{% endif %}
 				<<*>>
-				<<* dimensionNames(view) :dimension:d>>
-					{% if <<:view.dName>>.<<:dimension>>._is_filtered %}
-						AND {%condition <<:view.dName>>.<<:dimension>> %} ${<<:view.mName>>.<<:dimension>>} {% endcondition %}
-					{% endif %}
-				<<*>>
-				<<* x.conformedDimensions :codim:c>>
-				<<* view.fields :field:f>>
-					<<? field.codim == codim.name >>
-					<<! let mSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.mName);>>
-					<<* codimNames(codim) :typedName:t>>
-						{% if <<:x.explore.name>>.<<:typedName>>._is_filtered %}
-							<<? view.fields.filter(secondField=>secondField.codim==field.codim).length>1 >>
-							AND CASE WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}<<:sqlString(field.label)>>{% endcondition%}
-									 THEN {% condition <<:x.explore.name>>.<<:typedName>> %}<<:mSql>>{% endcondition %} ELSE NULL END
-							<<??>>
-							AND {% condition <<:x.explore.name>>.<<:typedName>> %}<<:mSql>>{% endcondition %}
-							<<?>>
-						{% endif %}
-					<<*>>
-					<<?>>
-				<<*>>
-				<<*>>
 			;;
 	 		<<?>>
 		}
@@ -607,7 +585,45 @@
 			#V2: RS: Add checkboxes to rel object for dist & sort equality constraints
 		}
 		<<*>>
-		
+		#Need to ensure these filters get pushed down to measure-table scan operations. If not, we need the filter in subqueries
+		sql_always_where: 1=1
+		<<*x.views :view:v>>
+			<<* view.fields :field:f>>
+				<<! let mSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.mName); /*v3 ${field} substitution?*/>>
+				<<! let dSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.dName); /*v3 ${field} substitution?*/>>
+				<<? field.ddg>>
+					<<* x.timeframes :timeframe:t>>
+					{% if <<:view.dName>>.ddg_<<:field.name>>_<<:timeframe>>._is_filtered %}
+						AND {%condition <<:view.dName>>.ddg_<<:field.name>>_<<:timeframe>> %} <<:mSql>> {% endcondition %}
+						AND {%condition <<:view.dName>>.ddg_<<:field.name>>_<<:timeframe>> %} <<:dSql>> {% endcondition %}
+					{% endif %}
+					<<*>>
+				<<?? field.dim>>
+					{% if <<:view.dName>>.dim_<<:field.name>>._is_filtered %}
+						AND {%condition <<:view.dName>>.dim_<<:field.name>> %} <<:mSql>> {% endcondition %}
+						AND {%condition <<:view.dName>>.dim_<<:field.name>> %} <<:dSql>> {% endcondition %}
+					{% endif %}
+				<<?>>
+				<<* x.conformedDimensions :codim:c>>
+					<<? field.codim == codim.name >>
+					<<* codimNames(codim) :typedName:t>>
+						{% if <<:x.explore.name>>.<<:typedName>>._is_filtered %}
+							<<? view.fields.filter(secondField=>secondField.codim==field.codim).length>1 >>
+							AND CASE WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}<<:sqlString(field.label)>>{% endcondition%}
+									 THEN {% condition <<:x.explore.name>>.<<:typedName>> %}<<:mSql>>{% endcondition %} ELSE NULL END
+ 							AND CASE WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}<<:sqlString(field.label)>>{% endcondition%}
+ 									 THEN {% condition <<:x.explore.name>>.<<:typedName>> %}<<:dSql>>{% endcondition %} ELSE NULL END
+							<<??>>
+							AND {% condition <<:x.explore.name>>.<<:typedName>> %}<<:mSql>>{% endcondition %}
+							AND {% condition <<:x.explore.name>>.<<:typedName>> %}<<:dSql>>{% endcondition %}
+							<<?>>
+						{% endif %}
+					<<*>>
+					<<?>>
+				<<*>>
+			<<*>>
+		<<*>>
+		;;
 	}
 
 	#"Base" (empty) View
