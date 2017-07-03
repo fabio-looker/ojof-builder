@@ -1,7 +1,7 @@
 <!doctype html >
 <html>
 <head>
-<script>var version={v:"1.0.3",date:"2017-05-31"}</script>
+<script>var version={v:"1.0.4",date:"2017-07-03"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -511,7 +511,7 @@
 				AND <<:view.mName>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base} 
 				<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
 				{%  <<* fieldPaths(prior) :field:f >>
-					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
+					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query
 					<<*>>
 				%}
 				AND <<:view.mName>>.<<:view.rs.dist>> = <<:prior.mName>>.<<:prior.rs.dist>>
@@ -537,7 +537,7 @@
 			sql:{%
 				<<* lefterViews(view).map(fieldPaths).reduce(flatten,fieldPaths(view))
 				:field:f>>
-				<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
+				<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query
 				<<*>>
 				%} /* Allow <<:view.dName>> */{% else
 				%}/* Prevent <<:view.dName>>
@@ -556,7 +556,7 @@
 			sql_on: ${<<:view.dName>>.pk}=COALESCE(
 				{%
 					<<* fieldPaths(view) :field:f>>
-					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
+					<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query
 					<<*>>
 				%}--Own view has dims or measures selected, so self.mView will be joined. Include via pk
 				<<:view.mName>>.<<:view.pk.key>>,{% endif %}
@@ -565,7 +565,7 @@
 					<<! let parentView=viewFromName(rel.leftViewName); >>
 					{%
 						<<* measurePaths(parentView) :measure:m >>
-						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query or <<:measure>>._is_filtered
+						<<?m==0>>if<<??>>or<<?>> <<:measure>>._in_query
 						<<*>>
 					%}--Parent view has dims or measures selected, so parent.mView will be joined. Include via fk
 					<<:parentView.mName>>.<<:rel.foreignKey>>,{% endif %}
@@ -573,7 +573,7 @@
 						<<* dimensionPaths(parentView)
 							.concat(lefterViews(parentView).map(fieldPaths).reduce(flatten,[]))
 							:field:f >>
-						<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query or <<:field>>._is_filtered
+						<<?f==0>>if<<??>>or<<?>> <<:field>>._in_query
 						<<*>>
 					%}--Ancestor view has dims or measures selected, so parent.dView will be joined. Include via fk
 					<<:parentView.dName>>.<<:rel.foreignKey>>,{% endif %}
@@ -664,14 +664,14 @@
 								<<* dimensionPaths(view)
 									.concat(lefterViews(view).map(dimensionPaths).reduce(flatten,[]))
 								:relatedField:r>>
-								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
+								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query
 								<<*>>
 							%}
 								{%
 									<<* fieldPaths(view)
 										.concat(righterViews(view).map(fieldPaths).reduce(flatten,[]))
 									:relatedField:r>>
-									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
+									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query
 									<<*>>
 								%}
 									<<! let dSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.dName);>>
@@ -687,14 +687,14 @@
 								<<* measurePaths(view)
 									.concat(lefterViews(view).map(measurePaths).reduce(flatten,[]))
 								:relatedField:r>>
-								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
+								<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query
 								<<*>>
 							%}
 								{%
 									<<* fieldPaths(view)
 										.concat(righterViews(view).map(fieldPaths).reduce(flatten,[]))
 									:relatedField:r>>
-									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query or <<:relatedField>>._is_filtered
+									<<?r==0>>if<<??>>or<<?>> <<:relatedField>>._in_query
 									<<*>>
 								%}
 									<<! let mSql=(field.sql||'').replace(/\$\{TABLE\}/g,view.mName);>>
