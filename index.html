@@ -394,23 +394,23 @@
 						},
 					views:x.views.map((v,vi)=>Object.assign({},v,{
 							n:vi,
-							//Deprecating
 							name:lookmlName(v.label)+"_"+vi,
-							mName:lookmlName(v.label)+"_"+vi+"m",
-							dName:lookmlName(v.label)+"_"+vi+"d",
+							//Deprecated
+							// mName:lookmlName(v.label)+"_"+vi+"m",
+							// dName:lookmlName(v.label)+"_"+vi+"d",
 							//To
 							//Base Table: Used in the table view's name
 							bTable: lookmlName(v.label)+"_"+vi+"_tbl",
 							//Measure table: Join alias for the table view for measure fields
-							mTable: lookmlName(v.label)+"_"+vi+"_mTbl",
+							mTable: lookmlName(v.label)+"_"+vi+"_msr_tbl",
 							//Dimension table: Join alias of the base table for dimension fields
-							dTable: lookmlName(v.label)+"_"+vi+"_dTbl",
+							dTable: lookmlName(v.label)+"_"+vi+"_dim_tbl",
 							//Measure fields: View name (& implicit join name) for the measure fields
-							mFields: lookmlName(v.label)+"_"+vi+"_mFld",
+							mFields: lookmlName(v.label)+"_"+vi+"_msr_fld",
 							//Dimension fields: View name (& implicit join name) for the dimension fields
-							dFields: lookmlName(v.label)+"_"+vi+"_dFld",,
+							dFields: lookmlName(v.label)+"_"+vi+"_dim_fld",
 							//Join alias for dimension "conditional gate" join
-							dCnd: lookmlName(v.label)+"_"+vi+"_dCnd",
+							dConditional: lookmlName(v.label)+"_"+vi+"_dim_cnd",
 							
 							isTableRef:!!v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)?\s*$/),
 							tableType:
@@ -432,8 +432,8 @@
 										?"${TABLE}."+f.sql
 										:f.sql
 								})).map((f,fi)=>Object.assign({},f,{
-									bSql:f.sql.replace(/\$\{TABLE\}/g, v.bTable)
-									mSql:f.sql.replace(/\$\{TABLE\}/g, v.mTable)
+									bSql:f.sql.replace(/\$\{TABLE\}/g, v.bTable),
+									mSql:f.sql.replace(/\$\{TABLE\}/g, v.mTable),
 									dSql:f.sql.replace(/\$\{TABLE\}/g, v.dTable)
 								}))
 						})),
@@ -489,15 +489,12 @@
 					.filter(truthy)
 				)
 		}
-	function measurePaths(view){
-			return measureNames(view).map(field=>view.mName+"."+field)
-		};
 	function dimensionNames(viewOrField){
 			return (
 					[{flag:"dim", prefix:"dim_", suffix:""}]
 					.concat(x.timeframes.map(t=>({flag:"ddg", prefix:"ddg_", suffix:"_"+t})))
 					.map(dimensionType=>
-							(viewOrFields.fields || [viewOrField])
+							(viewOrField.fields || [viewOrField])
 							.map(field=>
 									field[dimensionType.flag] && dimensionType.prefix+field.name+dimensionType.suffix
 								)
@@ -512,15 +509,19 @@
 					: x.timeframes.map(t=>codim.name+"_"+t)
 				);
 		};
+	/*
+	function measurePaths(view){
+			return measureNames(view).map(field=>view.mTable+"."+field)
+		};
 	function dimensionPaths(viewOrField){
-			return dimensionNames(view).map(field=>view.dName+"."+field)
+			return dimensionNames(viewOrField).map(field=>view.dName+"."+field)
 		};
 	function fieldPaths(view){
 			return measurePaths(view).concat(dimensionPaths(view))
-		}
+		}*/
 	>>
 	# Warning:  This file is programatically generated (Your changes will be overwritten)
-	# OJOF Generator by Fabio http://rawgit.com/fabio-looker/ojof-builder/master/index.html
+	# OJOF Generator by Fabio https://fabio-looker.github.io/ojof-builder/
 	# Generator v<<:x.generator.v>> (<<:x.generator.date>>)
 	# Generated on <<:(new Date()).toISOString().slice(0,10)>>
 	
@@ -551,6 +552,7 @@
 	 		<<?>>
 		}
 		join: <<:view.mFields>> {
+			sql: ;;
 			required_joins:[<<:view.mTable>>]
 			relationship: one_to_one
 		}
@@ -558,7 +560,7 @@
 		
 		#Selected "Dimension table" joins
 		<<* x.views :view:v >>
-		join: <<:view.dCond>> {# "conditional" join
+		join: <<:view.dConditional>> {# "conditional" join
 			from: nothing
 			relationship: one_to_one
 			required_joins:[
@@ -570,8 +572,8 @@
 					or <<:left.mFields>>._in_query
 					or <<:left.dFields>>._in_query
 					<<*>>
-				%}			/* Allow <<:view.dName>> */
-				{% else %}	/* Prevent <<:view.dName>> {% endif %}{% if '1'=='0' %}*/
+				%}			/* Allow <<:view.dTable>> */
+				{% else %}	/* Prevent <<:view.dTable>> {% endif %}{% if '1'=='0' %}*/
 				{% endif %}
 			;;
 		}
@@ -579,18 +581,18 @@
 			from: <<:view.bTable>>
 			type: left_outer
 			relationship: many_to_one
-			required_joins:[ <<:view.dCond>> ]
+			required_joins:[ <<:view.dConditional>> ]
 			sql_on: ${<<:view.dTable>>.pk} = COALESCE(
 				{%	if <<:view.mFields>>._in_query or <<:view.dFields>>._in_query %}
 					--Own view has dims or measures selected, so self.mView will be joined. Include via pk
-					<<:view.mName>>.<<:view.pk.key>>,
+					<<:view.mTable>>.<<:view.pk.key>>,
 				{% endif %}
 				<<* x.normalizedRelationships :rel>>
 				<<? rel.rightViewName==view.name>>
 					<<! let parentView=viewFromName(rel.leftViewName); >>
 					{% if <<:parentView.mFields>>._in_query%}
 					--Parent view measures selected, so parent.mView will be joined. Include via fk
-					<<:parentView.mName>>.<<:rel.foreignKey>>,
+					<<:parentView.mTable>>.<<:rel.foreignKey>>,
 					{% endif %}
 					{%	if <<:parentView.dFields>>._in_query
 						<<* lefterViews(parentView) :lefterView:l>>
@@ -600,7 +602,7 @@
 					%}
 					--Parent view dimensions selected, so parent.dView will be joined. Include via fk
 					--or ancestor view has dims or measures selected, so parent.dView will be joined. Include via fk
-					<<:parentView.dName>>.<<:rel.foreignKey>>,
+					<<:parentView.dTable>>.<<:rel.foreignKey>>,
 					{% endif %}
 				<<?>>
 				<<*>>
@@ -611,12 +613,13 @@
 			#V2: RS: Add checkboxes to rel object for dist & sort equality constraints
 		}
 		join: <<:view.dFields>>{
+			sql: ;;
 			required_joins:[<<:view.dTable>>]
 			relationship: one_to_one
 		}
 		<<*>>
 	}
-	#
+
 	view: nothing {}
 	#"Base" (empty) View
 	view: <<:x.explore.name>> {
@@ -674,12 +677,12 @@
 							{% endif %}
 							{% endif %}
 							{%	if <<:view.mFields>>._in_query
-								<<* lefterViews(view) left:l>>
+								<<* lefterViews(view) :left:l>>
 								or <<:left.mFields>>._in_query
 								<<*>>
 							%}
 							{% if <<:view.mFields>>._in_query
-								<<* righterViews(view) right:r>>
+								<<* righterViews(view) :right:r>>
 								or <<:right.mFields>>._in_query
 								<<*>>
 							%}
@@ -712,10 +715,8 @@
 		#}
 		#
 	}
-
- 
 	<<* x.views :view >>
-	view: <<:view.tView>> {
+	view: <<:view.bTable>> {
 		derived_table: {
 			sql:
 				SELECT * 
@@ -723,9 +724,9 @@
 				WHERE 1=1 
 				<<* view.fields :field:f>>
 					<<!/* Push dimension filters onto the associated measure tables */>>
-					<<* dimensionPaths(field) :dim:d>>
-							{% if <<:dim>>._is_filtered %}
-								AND {%condition <<:dim>> %} <<:field.bSql>> {% endcondition %}
+					<<* dimensionNames(field) :dim:d>>
+							{% if <<:view.dFields>>.<<:dim>>._is_filtered %}
+								AND {% condition <<:view.dFields>>.<<:dim>> %} <<:field.bSql>> {% endcondition %}
 							{% endif %}
 					<<*>>
 					<<!/* Push codim filters onto the associated dimension and measure tables */>>
@@ -735,16 +736,16 @@
 							{% if <<:x.explore.name>>.<<:typedName>>._is_filtered %}
 								<<? view.fields.filter(field2=>field2.codim==field.codim).length>1 >>
 								AND CASE 
-									WHEN {% condition <<:view.dName>>.codim_switch_<<:codim.name>> %}
+									WHEN {% condition <<:view.dFields>>.codim_switch_<<:codim.name>> %}
 										 <<:sqlString(field.label)>>
 										 {% endcondition%}
 									THEN {% condition <<:x.explore.name>>.<<:typedName>> %}
-										 <<:bSql>>
+										 <<:field.bSql>>
 										 {% endcondition %}
 									ELSE 1=1 END
 								<<??>>
 								AND {% condition <<:x.explore.name>>.<<:typedName>> %}
-									<<:bSql>>
+									<<:field.bSql>>
 									{% endcondition %}
 								<<?>>
 							{% endif %}
@@ -754,39 +755,27 @@
 				<<*>>
 			;;
 		}
-		<<?>>
 	}
 	view: <<:view.mFields>> {
 		label: "<<:view.label>>"
 		<<?x.dialect=="Redshift">>
 		dimension: dist{
 			hidden: yes
-			sql:<<:view.tName>>.<<:view.rs.dist>>;;
+			sql:<<:view.mTable>>.<<:view.rs.dist>>;;
 		}
 		dimension: sort{
 			hidden: yes
-			sql:${TABLE}.<<:view.rs.sort>>;;
+			sql:<<:view.mTable>>.<<:view.rs.sort>>;;
 		}
 		<<?>>
 		dimension: require {
 			hidden:yes
 			sql: ;;
 		}
-		# PK Fields
 		dimension: pk {
 			hidden: yes
-			sql: ${TABLE}.<<:view.pk.key>>;;
+			sql: <<:view.mTable>>.<<:view.pk.key>>;;
 		}
-		##
-		## Measure Fields
-		##
-		#set: measures{
-		#	fields:[
-		#		<<* measureNames(view) :measure:m>>
-		#		<<?m>0>>,<<?>> <<:measure>>
-		#		<<*>>
-		#	]
-		#}
 		
 		measure: count_pk {
 			hidden: <<:view.pk.count ? "no" : "yes">>
@@ -799,7 +788,7 @@
 		measure: sum_<<:field.name>> {
 			type: number
 			label: "Sum of <<:field.label>>"
-			sql: SUM(<<:field.sql>>) ;;
+			sql: SUM(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -808,7 +797,7 @@
 		measure: avg_<<:field.name>> {
 			type: number
 			label: "Average of <<:field.label>>"
-			sql: AVG(<<:field.sql>>) ;;
+			sql: AVG(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -821,7 +810,7 @@
 			<<??>>
 			label: "Max of <<:field.label>>"
 			<<?>>
-			sql: MIN(<<:field.sql>>) ;;
+			sql: MIN(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -834,7 +823,7 @@
 			<<??>>
 			label: "Max of <<:field.label>>"
 			<<?>>
-			sql: MAX(<<:field.sql>>) ;;
+			sql: MAX(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -843,35 +832,30 @@
 		measure: list_<<:field.name>> {
 			type: string
 			label: "List of <<:field.label>>"
-			<<? x.dialect=="Redshift">>sql: LISTAGG(<<:field.sql>>,', ') ;;<<?>>
-			<<? x.dialect=="BigQuery Standard">>sql: GROUP_CONCAT(<<:field.sql>>) ;;<<?>>
+			<<? x.dialect=="Redshift">>sql: LISTAGG(<<:field.mSql>>,', ') ;;<<?>>
+			<<? x.dialect=="BigQuery Standard">>sql: GROUP_CONCAT(<<:field.mSql>>) ;;<<?>>
 			<<:field.otherLookml>>
 		}
 		<<?>>
 		<<*>>
-		
-		#
-		# Dimension Fields
-		#
-		#set: dimensions{
-		#	fields:[
-		#		<<* dimensionNames(view) :dimension:d>>
-		#		<<?d>0>>,<<?>> <<:dimension>>
-		#		<<*>>
-		#	]
-		#}
-		
+	}
+	view: <<:view.dFields>> {
+		label: "<<:view.label>>"
+		dimension: pk {
+			hidden: yes
+			sql: <<:view.dTable>>.<<:view.pk.key>>;;
+		}
 		dimension: dim_pk {
 			hidden: <<:view.pk.dim ? "no" : "yes">>
 			label: "<<:view.label>> ID"
-			sql: ${TABLE}.<<:view.pk.key>>  /* ${<<:view.mName>>.require}*/;;
+			sql: <<:view.dTable>>.<<:view.pk.key>>  /* ${<<:view.mTable>>.require}*/;;
 		}
 		<<* view.fields :field>>
 		<<?field.dim>>
 		dimension: dim_<<:field.name>> {
 			<<?field.type>>type: <<:field.type>><<?>>
 			label: "<<:field.label>>"
-			sql: <<:field.sql>> /* ${<<:view.mName>>.require}*/;;
+			sql: <<:field.dSql>> /* ${<<:view.mTable>>.require}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -881,7 +865,7 @@
 			label: " "
 			type: time
 			timeframes: [<<:x.timeframes.join(",")>>]
-			sql: <<:field.sql>>  /* ${<<:view.mName>>.require}*/;;
+			sql: <<:field.dSql>>  /* ${<<:view.mTable>>.require}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
