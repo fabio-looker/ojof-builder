@@ -25,7 +25,7 @@
 			$("#version").text("v"+version.v+" ("+version.date+")")
 			var editorDef= {
 					schema: inputSchema,
-					startval:  tryRisonParse("o")
+					startval:  tryRisonParse(qs("o"))
 							|| tryJSONParse(qs("o"))
 							|| tryJSONParse(localStorage.getItem(storageKey))
 							|| initialValue,
