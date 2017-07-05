@@ -1,7 +1,7 @@
 <!doctype html >
 <html>
 <head>
-<script>var version={v:"1.0.4",date:"2017-07-03"}</script>
+<script>var version={v:"1.1.0",date:"2017-07-04"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -9,7 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/json-editor/0.7.28/jsoneditor.min.js" integrity="sha256-51+oMmpgSgS4jV5/DcGKnDHIOL6Jeie2i7ka6sPQVro=" crossorigin="anonymous"></script>
 <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/nunjucks/3.0.0/nunjucks.min.js" integrity="sha256-LWvp8rf/ha5W5zb5rGjypfi/b8w5Yo0Lm+W6ccH3ejA=" crossorigin="anonymous"></script>-->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dot/1.1.0/doT.min.js" integrity="sha256-0DJpUBhIByZ5Tm5u/xEvcRalEiuyadItx381FmBKHB4=" crossorigin="anonymous"></script>
-
+<script src="https://cdn.rawgit.com/Nanonid/rison/e64af6c096fd30950ec32cfd48526ca6ee21649d/js/rison.js" integrity="sha256-4Zg2e0UX/I8JAIl4CQgnB/A15bw2jxjLCu/mjQRGoRI=" crossorigin="anonymous"></script>
 <style>
  textarea{font-size:10pt !important;}
  .out {width:100%;height:20em;}
@@ -25,7 +25,10 @@
 			$("#version").text("v"+version.v+" ("+version.date+")")
 			var editorDef= {
 					schema: inputSchema,
-					startval: tryJSONParse(qs("o")) || tryJSONParse(localStorage.getItem(storageKey)) || initialValue,
+					startval:  tryRisonParse("o")
+							|| tryJSONParse(qs("o"))
+							|| tryJSONParse(localStorage.getItem(storageKey))
+							|| initialValue,
 					"required_by_default":true,
 					//"disable_collapse":true,
 					"disable_properties":true,
@@ -38,7 +41,7 @@
 					localStorage.setItem(storageKey,JSON.stringify(editor.getValue()))
 					$("#msg").hide()
 				});
-				
+
 				doT.templateSettings = {
 						evaluate:    /\<\<\!([\s\S]+?)\>\>/g,
 						interpolate: /\<\<\:([\s\S]+?)\>\>/g,
@@ -51,7 +54,7 @@
 						strip: false,
 						append: true,
 						selfcontained: false
-					};	
+					};
 			var templates={}
 			$("script[type='text/x-dot-template']").each(function(i,el){
 					var t=this.dataset;
@@ -93,7 +96,7 @@
 						})
 				})
 		})
-	
+
 	//Just functions below
 
 	function set(obj,path,val){
@@ -134,6 +137,13 @@
 	function tryJSONParse(s){
 			try{
 					return JSON.parse(s)
+				}catch(e){
+					return undefined
+				}
+		}
+	function tryRisonParse(s){
+			try{
+					rison.decode(s)
 				}catch(e){
 					return undefined
 				}
@@ -212,11 +222,23 @@
 							enum:["BigQuery Standard","Redshift"]
 						},
 					"explore":{
-						title:"Explore Label",
-						type:"string",
-						pattern:pat.oneLineString
-					},
-					"conformedDimensions":{
+							type:"object",
+							title:"Explore",
+							options:{disable_edit_json:true,disable_properties:true,display_required_only:true},
+							properties:{
+									label:{
+											title:"Label",
+											type:"string",
+											pattern:pat.oneLineString
+										},
+									other:{
+											title:"Other LookML",
+											type:"string",
+											format:"textarea"
+										}
+								}
+						},
+					"codims":{
 							title:"Conformed Dimensions",
 							type:"array",
 							format:"tabs",
@@ -240,7 +262,13 @@
 															value:"{{item.label}}"
 														}]
 												},
-											type:{type:"string",title:"Type",enum:["","date","string","number","yesno"]}
+											type:{type:"string",title:"Type",enum:[
+													"",
+													"date",
+													"string",
+													"number"
+													//,"yesno" helltool/issues/13948
+												]}
 										}
 								}
 						},
@@ -271,6 +299,7 @@
 													title:"[Redshift only]",
 													properties:{
 															dist:{title:"Dist key",type:"string", pattern:pat.atomOrNone},
+															distgroup:{title:"Dist group",type:"string", pattern:pat.atomOrNone},
 															sort:{title:"Sort key",type:"string", pattern:pat.atomOrNone}
 														}
 												},
@@ -286,7 +315,7 @@
 															properties:{
 																	label:{propertyOrder:1,title:"Label",type:"string", pattern:pat.oneLineString},
 																	sql:{propertyOrder:2,title:"SQL",type:"string", pattern:pat.sql},
-																	type:{propertyOrder:3,title:"Datatype",type:"string",enum:["","string","number","date","yesno"]},
+																	type:{propertyOrder:3,title:"Datatype",type:"string",enum:["","string","number","date"/*,"yesno" helltool/issues/13948 */]},
 																	dim:{propertyOrder:4,type:"boolean",format:"checkbox",title:"Dimension"},
 																	sum:{propertyOrder:6,type:"boolean",format:"checkbox",title:"Sum"},
 																	avg:{propertyOrder:7,type:"boolean",format:"checkbox",title:"Average"},
@@ -296,7 +325,7 @@
 																	codim:{propertyOrder:11,
 																			type:"string",
 																			title:"Conformed Dimension",
-																			watch:{codims:"conformedDimensions"},
+																			watch:{codims:"codims"},
 																			enumSource:[{
 																					"source": [{"value": "","title": ""}],
 																					"title": "{{item.title}}",
@@ -381,17 +410,29 @@
 				}
 		}
 
-	var initialValue={}
-	
+	var initialValue = {
+			"explore": {
+					"label": "All the things",
+					"other": "always_filter:{ filters:{\n  field: combined_date_0_date\n  value: \"7 days,NULL\"\n}}"
+				},
+			"codims": [
+					{
+							"label": "Combined Date",
+							"viewLabel": "[Base view]",
+							"type": "date"
+						}
+				]
+		};
+
 	function customTransform (x){
 			var pdtRegex=/^\s*\$\{([a-zA-Z_][a-zA-Z0-9_$]*)\.SQL_TABLE_NAME\}\s*$/
 			var singleColRegex=/^[_a-zA-Z][_a-zA-Z0-9$]*$|^"[^"]+"$/
 			return Object.assign({},x,{
 					generator:version,
-					explore:{
-							label:x.explore,
-							name:lookmlName(x.explore)
-						},
+					original:x,
+					explore:Object.assign({},x.explore,{
+							name:lookmlName(x.explore.label)
+						}),
 					views:x.views.map((v,vi)=>Object.assign({},v,{
 							n:vi,
 							name:lookmlName(v.label)+"_"+vi,
@@ -411,7 +452,7 @@
 							dFields: lookmlName(v.label)+"_"+vi+"_dim_fld",
 							//Join alias for dimension "conditional gate" join
 							dConditional: lookmlName(v.label)+"_"+vi+"_dim_cnd",
-							
+
 							isTableRef:!!v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)?\s*$/),
 							tableType:
 									v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)?\s*$/)
@@ -441,7 +482,7 @@
 							leftViewName:lookmlName(r.leftViewName),
 							rightViewName:lookmlName(r.rightViewName),
 						})),
-					conformedDimensions:x.conformedDimensions.map((c,ci)=>Object.assign({},c,{
+					codims:x.codims.map((c,ci)=>Object.assign({},c,{
 							n:ci,
 							name:lookmlName(c.label)+"_"+ci
 						}))
@@ -450,20 +491,28 @@
 		function lookmlName(s){
 				if(!s || !s.trim || !s.trim()){throw "Non-empty string required for LookML name";}
 				return s.replace(/[\s]+/g,"_").replace(/[^a-zA-Z0-9_]+/g,"").toLowerCase()
-			};	
+			};
 
 </script>
 <script type="text/x-dot-template" data-name="main">
 	<<!
 	function viewFromName(name){return x.views.find(v=>v.name==name)};
 	function righterViews(baseView) {
-			var baseViewName=typeof baseView == "string" ? baseView : baseView.name;
-			return recurNamesInDirection(baseViewName,"right",6).filter(unique).map(viewFromName);
+			return viewsInDirection(baseView,"right",10)
 		};
 	function lefterViews(baseView){
-			var baseViewName=typeof baseView == "string" ? baseView : baseView.name;
-			return recurNamesInDirection(baseViewName,"left",6).filter(unique).map(viewFromName);
+			return viewsInDirection(baseView,"left",10)
 		};
+	function rightViews(baseView) {
+			return viewsInDirection(baseView,"right",1)
+		};
+	function leftViews(baseView){
+			return viewsInDirection(baseView,"left",1)
+		};
+	function viewsInDirection(baseView,direction,depth){
+			var baseViewName=typeof baseView == "string" ? baseView : baseView.name;
+			return recurNamesInDirection(baseViewName,direction,depth).filter(unique).map(viewFromName);
+	};
 	function recurNamesInDirection(baseViewName,dir,remainingRecursion){
 			var oppDir=(dir=="left"?"right":"left");
 			var immediateViewNames
@@ -473,7 +522,7 @@
 			return (immediateViewNames.length && remainingRecursion
 					? immediateViewNames.map(p=>recurNamesInDirection(p,dir,remainingRecursion-1)).reduce(flatten,immediateViewNames)
 					: []
-				);			
+				);
 		};
 	function sqlString(s){
 			switch (x.dialect){
@@ -521,10 +570,11 @@
 		}*/
 	>>
 	# Warning:  This file is programatically generated (Your changes will be overwritten)
-	# OJOF Generator by Fabio https://fabio-looker.github.io/ojof-builder/
+	# OJOF Generator by Fabio
 	# Generator v<<:x.generator.v>> (<<:x.generator.date>>)
 	# Generated on <<:(new Date()).toISOString().slice(0,10)>>
-	
+	# https://fabio-looker.github.io/ojof-builder/?o=<<:rison.encode_uri(x.original)>>
+
 	<<?x.connectionName>>connection: "<<:x.connectionName>>"<<?>>
 	explore: <<:x.explore.name>> {
 		label:"<<:x.explore.label>>"
@@ -541,7 +591,7 @@
 			#Redshift (Only allows FOJ on merge joins, which require dist & sort key equality)
 			sql_on: /**/
 				    <<:view.mTable>>.<<:view.rs.dist>> = ${<<:x.explore.name>>.base}
-				AND <<:view.mTable>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base} 
+				AND <<:view.mTable>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base}
 				<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
 				{%  if <<:prior.mFields>>._in_query or <<:prior.dFields>>._in_query %}
 				AND <<:view.mTable>>.<<:view.rs.dist>> = <<:prior.mTable>>.<<:prior.rs.dist>>
@@ -557,7 +607,7 @@
 			relationship: one_to_one
 		}
 		<<*>>
-		
+
 		#Selected "Dimension table" joins
 		<<* x.views :view:v >>
 		join: <<:view.dConditional>> {# "conditional" join
@@ -567,7 +617,7 @@
 				<<* lefterViews(view) :left:l>> <<?l!=0>>,<<?>><<:left.dTable>> <<*>>
 			]
 			sql:{%	if <<:view.mFields>>._in_query
-				 	or <<:view.dFields>>._in_query 
+				 	or <<:view.dFields>>._in_query
 					<<* lefterViews(view) :left:l>>
 					or <<:left.mFields>>._in_query
 					or <<:left.dFields>>._in_query
@@ -582,35 +632,60 @@
 			type: left_outer
 			relationship: many_to_one
 			required_joins:[ <<:view.dConditional>> ]
-			sql_on: ${<<:view.dTable>>.pk} = COALESCE(
-				{%	if <<:view.mFields>>._in_query or <<:view.dFields>>._in_query %}
-					--Own view has dims or measures selected, so self.mView will be joined. Include via pk
-					<<:view.mTable>>.<<:view.pk.key>>,
-				{% endif %}
-				<<* x.normalizedRelationships :rel>>
-				<<? rel.rightViewName==view.name>>
-					<<! let parentView=viewFromName(rel.leftViewName); >>
-					{% if <<:parentView.mFields>>._in_query%}
-					--Parent view measures selected, so parent.mView will be joined. Include via fk
-					<<:parentView.mTable>>.<<:rel.foreignKey>>,
+			sql_on: <<:view.dTable>>.<<:view.pk.key>> =
+				COALESCE(
+					{%	if <<:view.mFields>>._in_query or <<:view.dFields>>._in_query %}
+						--Own view has dims or measures selected, so self.mView will be joined. Include via pk
+						<<:view.mTable>>.<<:view.pk.key>>,
 					{% endif %}
-					{%	if <<:parentView.dFields>>._in_query
-						<<* lefterViews(parentView) :lefterView:l>>
-						or <<:lefterView.mFields>>._in_query
-						or <<:lefterView.dFields>>._in_query
+				<<* leftViews(view) :leftView>>
+					{%	if <<:leftView.mFields>>._in_query or <<:leftView.dFields>>._in_query
+						<<* lefterViews(leftView) :lefterView>>
+						or <<:lefterView.mFields>>._in_query or <<:lefterView.dFields>>._in_query
 						<<*>>
 					%}
-					--Parent view dimensions selected, so parent.dView will be joined. Include via fk
+					--Parent view fields selected, so parent.dView will be joined. Include via fk
 					--or ancestor view has dims or measures selected, so parent.dView will be joined. Include via fk
-					<<:parentView.dTable>>.<<:rel.foreignKey>>,
+					<<:leftView.dTable>>.<<:x.normalizedRelationships.find(r=>
+							r.leftViewName==leftView.name && r.rightViewName==view.name
+						).foreignKey>>,
 					{% endif %}
-				<<?>>
 				<<*>>
 					NULL
-			)
-			-- End conditional */
+				)
+			<<? x.dialect=="Redshift" && view.rs.distgroup >>
+			--Distkey equality (unless incompatible parents are in query)
+			{%	unless '0'=='1'
+				<<* leftViews(view) :parentView>>
+				<<? parentView.rs.distgroup != view.rs.distgroup >>
+				or <<:parentView.mFields>>._in_query
+				or <<:parentView.dFields>>._in_query
+				<<?>>
+				<<*>>
+			%}
+			AND <<:view.dTable>>.<<:view.rs.dist>> =
+				COALESCE(
+					{%	if <<:view.mFields>>._in_query or <<:view.dFields>>._in_query %}
+						--Own view has dims or measures selected, so self.mView will be joined. Include via dk
+						<<:view.mTable>>.<<:view.rs.dist>>,
+					{% endif %}
+				<<* leftViews(view) :parentView>>
+					{%	if <<:parentView.mFields>>._in_query or <<:parentView.dFields>>._in_query
+						<<* lefterViews(parentView) :lefterView:l>>
+						or <<:lefterView.mFields>>._in_query or <<:lefterView.dFields>>._in_query
+						<<*>>
+					%}
+					--Parent view fields selected, so parent.dView will be joined. Include via dk
+					--or ancestor view has dims or measures selected, so parent.dView will be joined. Include via dk
+					<<:parentView.dTable>>.<<:parentView.rs.dist>>,
+					{% endif %}
+				<<*>>
+					NULL
+				)
+			{% endunless %}
+			<<?>>
+			-- End conditional join */
 			;;
-			#V2: RS: Add checkboxes to rel object for dist & sort equality constraints
 		}
 		join: <<:view.dFields>>{
 			sql: ;;
@@ -618,6 +693,7 @@
 			relationship: one_to_one
 		}
 		<<*>>
+		<<:x.explore.other>>
 	}
 
 	view: nothing {}
@@ -638,7 +714,7 @@
 			hidden: yes
 			sql: ${TABLE}.base ;;
 		}
-		<<* x.conformedDimensions :codim:c>>
+		<<* x.codims :codim:c>>
 		<<? codim.type=="date">>dimension_group<<??>>dimension<<?>>: <<:codim.name>> {
 				view_label: <<? codim.viewLabel=="[Base view]">>"[<<:x.explore.label>>]"<<??>>"<<:codim.viewLabel>>"<<?>>
 				<<? codim.type=="date">>
@@ -668,7 +744,7 @@
 									CASE WHEN	{% condition <<:view.dFields>>.codim_switch_<<:codim.name>> %}
 												<<:sqlString(field.label)>>
 												{% endcondition %}
-										 THEN	<<:field.dSql>> 
+										 THEN	<<:field.dSql>>
 										 ELSE NULL
 									END,
 								<<??>>
@@ -705,7 +781,7 @@
 				);;
 			}
 		<<*>>
-		
+
 		# Maybe add this pattern to the generator too?
 		#
 		#measure: product_conversion_rate {
@@ -715,13 +791,19 @@
 		#}
 		#
 	}
+
+	#####################################
+	#
+	#    "REAL" VIEWS
+	#
+	#####################################
 	<<* x.views :view >>
 	view: <<:view.bTable>> {
 		derived_table: {
 			sql:
-				SELECT * 
+				SELECT *
 				FROM <<:view.table>> as <<:view.bTable>>
-				WHERE 1=1 
+				WHERE 1=1
 				<<* view.fields :field:f>>
 					<<!/* Push dimension filters onto the associated measure tables */>>
 					<<* dimensionNames(field) :dim:d>>
@@ -730,12 +812,12 @@
 							{% endif %}
 					<<*>>
 					<<!/* Push codim filters onto the associated dimension and measure tables */>>
-					<<* x.conformedDimensions :codim:c>>
+					<<* x.codims :codim:c>>
 						<<? field.codim == codim.name >>
 						<<* codimNames(codim) :typedName:t>>
 							{% if <<:x.explore.name>>.<<:typedName>>._is_filtered %}
 								<<? view.fields.filter(field2=>field2.codim==field.codim).length>1 >>
-								AND CASE 
+								AND CASE
 									WHEN {% condition <<:view.dFields>>.codim_switch_<<:codim.name>> %}
 										 <<:sqlString(field.label)>>
 										 {% endcondition%}
@@ -776,7 +858,7 @@
 			hidden: yes
 			sql: <<:view.mTable>>.<<:view.pk.key>>;;
 		}
-		
+
 		measure: count_pk {
 			hidden: <<:view.pk.count ? "no" : "yes">>
 			label: "<<:view.label>> Count"
@@ -784,7 +866,7 @@
 			sql: CASE WHEN MIN(${pk}) IS NULL THEN NULL ELSE COUNT(${pk}) END ;;
 		}
 		<<*view.fields :field>>
-		<<?field.sum>> 
+		<<?field.sum>>
 		measure: sum_<<:field.name>> {
 			type: number
 			label: "Sum of <<:field.label>>"
@@ -792,8 +874,8 @@
 			<<:field.otherLookml>>
 		}
 		<<?>>
-		
-		<<?field.avg>> 
+
+		<<?field.avg>>
 		measure: avg_<<:field.name>> {
 			type: number
 			label: "Average of <<:field.label>>"
@@ -801,12 +883,12 @@
 			<<:field.otherLookml>>
 		}
 		<<?>>
-		
-		<<?field.min>> 
+
+		<<?field.min>>
 		measure: min_<<:field.name>> {
 			type: <<:field.type>>
 			<<?field.type=="date">>
-			label: "Earliest <<:field.label>> Date"
+			label: "Earliest <<:field.label>>"
 			<<??>>
 			label: "Max of <<:field.label>>"
 			<<?>>
@@ -814,12 +896,12 @@
 			<<:field.otherLookml>>
 		}
 		<<?>>
-		
-		<<?field.max>> 
+
+		<<?field.max>>
 		measure: max_<<:field.name>> {
 			type: <<:field.type>>
 			<<?field.type=="date">>
-			label: "Latest <<:field.label>> Date"
+			label: "Latest <<:field.label>>"
 			<<??>>
 			label: "Max of <<:field.label>>"
 			<<?>>
@@ -827,8 +909,8 @@
 			<<:field.otherLookml>>
 		}
 		<<?>>
-		
-		<<?field.list>> 
+
+		<<?field.list>>
 		measure: list_<<:field.name>> {
 			type: string
 			label: "List of <<:field.label>>"
@@ -848,14 +930,14 @@
 		dimension: dim_pk {
 			hidden: <<:view.pk.dim ? "no" : "yes">>
 			label: "<<:view.label>> ID"
-			sql: <<:view.dTable>>.<<:view.pk.key>>  /* ${<<:view.mTable>>.require}*/;;
+			sql: <<:view.dTable>>.<<:view.pk.key>>  /* ${<<:view.mFields>>.require}*/;;
 		}
 		<<* view.fields :field>>
 		<<?field.dim>>
 		dimension: dim_<<:field.name>> {
 			<<?field.type>>type: <<:field.type>><<?>>
 			label: "<<:field.label>>"
-			sql: <<:field.dSql>> /* ${<<:view.mTable>>.require}*/;;
+			sql: <<:field.dSql>> /* ${<<:view.mFields>>.require}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -865,7 +947,7 @@
 			label: " "
 			type: time
 			timeframes: [<<:x.timeframes.join(",")>>]
-			sql: <<:field.dSql>>  /* ${<<:view.mTable>>.require}*/;;
+			sql: <<:field.dSql>>  /* ${<<:view.mFields>>.require}*/;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -875,14 +957,14 @@
 		#
 		set: codim_selectors{
 			fields:[
-			<<* x.conformedDimensions :codim:c>>
+			<<* x.codims :codim:c>>
 			<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>
 			<<?c>0>>,<<?>> codim_switch_<<:codim.name>>
 			<<?>>
 			<<*>>
 			]
 		}
-		<<* x.conformedDimensions :codim:c>>
+		<<* x.codims :codim:c>>
 			<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>
 			filter: codim_switch_<<:codim.name>> {
 				label: "<<?codim.type=='date'>>Date<<??>>Field<<?>> for <<:codim.label>>"
@@ -891,7 +973,7 @@
 			}
 			<<?>>
 		<<*>>
-		
+
 	}
 	<<*>>
 </script>
