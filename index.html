@@ -1,7 +1,7 @@
 <!doctype html >
 <html>
 <head>
-<script>var version={v:"1.1.1",date:"2017-07-05"}</script>
+<script>var version={v:"1.1.2",date:"2017-07-05"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -16,6 +16,8 @@
  dl.tabs.vertical>dd{overflow: hidden; text-overflow: ellipsis;max-height:4em;}
  dl.tabs.vertical>dd>a{padding:0.5rem 0.25rem;white-space: pre-line;}
  .tabs-content>div>h3{overflow: hidden; text-overflow: ellipsis;max-height:4em;white-space: pre-line;}
+ #json-editor input+p{display:none}
+ #json-editor input:focus+p{display:block}
 </style>
 <script>
 	// Set the JSONEditor CSS theme and icon library globally
@@ -171,6 +173,13 @@
 <body>
 	<div id="version" style="position:absolute;top:0;right:1em;color:#DDD;font-size:0.8em"></div>
 	<h1>LookML Builder</h2>
+	<div style="max-width:640px;margin:0 auto">
+		<h2>Tips</h2>
+		<ul style="font-size:0.8em; font-family:serif; color:#333;">
+			<li> This is a static HTML file and can be used locally. If you are running it from a shared domain, other scripts on that domain may have access to data you enter here.</li>
+			<li> For more information on why this is cool, read <a href="https://discourse.looker.com/t/outer-join-on-false-or-how-i-learned-to-stop-fanning-out-and-love-the-null/4786">my Discourse post</a>
+		</ul>
+	</div>
 	<div>
 		<div id="build-panel" style="width:80vw;min-width:640px;margin:0 auto">
 			<form id="build-form" onsubmit="return false">
@@ -183,12 +192,7 @@
 				</div>
 			</form>
 		</div>
-		<div style="max-width:640px;margin:0 auto">
-			<h2>Tips</h2>
-			<ul style="font-size:0.8em; font-family:serif; color:#333;">
-				<li> This is a static HTML file and can be used locally. If you are running it from a shared domain, other scripts on that domain may have access to data you enter here.</li>
-			</ul>
-		</div>
+
 		<div style="width:80vw;min-width:640px;margin:0 auto">
 			<h2>Built Model</h2>
 			<div id="out"></div>
@@ -298,9 +302,15 @@
 													format:"compact",
 													title:"[Redshift only]",
 													properties:{
-															dist:{title:"Dist key",type:"string", pattern:pat.atomOrNone},
-															distgroup:{title:"Dist group",type:"string", pattern:pat.atomOrNone},
-															sort:{title:"Sort key",type:"string", pattern:pat.atomOrNone}
+															dist:{title:"Dist key",type:"string", pattern:pat.atomOrNone,
+																	description:"Required for Redshift because Redshift only allows full outer joins between tables that have a distkeys and a sortkey set"
+																},
+															distgroup:{title:"Dist group",type:"string", pattern:pat.atomOrNone,
+																	description:"Optional. If multiple views are given the same Dist group value, then an equality constraint between their distribution keys will be added to the join condition for joins between them"
+																},
+															sort:{title:"Sort key",type:"string", pattern:pat.atomOrNone,
+																	description:"Required for Redshift because Redshift only allows full outer joins between tables that have a distkeys and a sortkey set"
+																}
 														}
 												},
 											"fields":{
