@@ -37,6 +37,7 @@
 					"keep_oneof_values":true,
 					"disable_edit_json":true
 				}
+			document.location.hash="#";
 			var editor = new JSONEditor($("#json-editor")[0],editorDef)
 			editor.on('change',function() {
 					localStorage.setItem(storageKey,JSON.stringify(editor.getValue()))
@@ -150,7 +151,7 @@
 				}
 		}
 	function qs(k){
-			return document.location.search.slice(1).split("&")
+			return document.location.hash.slice(1).split("&")
 			.filter(function(p){return p.indexOf(encodeURIComponent(k)+"=")===0})
 			.map(function(p){return decodeURIComponent(p.split("=").slice(1).join("=")).replace(/\+/g," ")})[0]
 		}
@@ -303,13 +304,13 @@
 													title:"[Redshift only]",
 													properties:{
 															dist:{title:"Dist key",type:"string", pattern:pat.atomOrNone,
-																	description:"Required for Redshift because Redshift only allows full outer joins between tables that have a distkeys and a sortkey set"
+																	description:"Required for Redshift for views with any measures because Redshift only allows full outer joins between tables that have a distkeys and a sortkey set"
 																},
 															distgroup:{title:"Dist group",type:"string", pattern:pat.atomOrNone,
 																	description:"Optional. If multiple views are given the same Dist group value, then an equality constraint between their distribution keys will be added to the join condition for joins between them"
 																},
 															sort:{title:"Sort key",type:"string", pattern:pat.atomOrNone,
-																	description:"Required for Redshift because Redshift only allows full outer joins between tables that have a distkeys and a sortkey set"
+																	description:"Required for Redshift for views with any measures because Redshift only allows full outer joins between tables that have a distkeys and a sortkey set"
 																}
 														}
 												},
@@ -584,7 +585,7 @@
 	# OJOF Generator by Fabio
 	# Generator v<<:x.generator.v>> (<<:x.generator.date>>)
 	# Generated on <<:(new Date()).toISOString().slice(0,10)>>
-	# https://fabio-looker.github.io/ojof-builder/?o=<<:rison.encode_uri(x.original)>>
+	# https://fabio-looker.github.io/ojof-builder/#o=<<:rison.encode_uri(x.original)>>
 
 	<<?x.connectionName>>connection: "<<:x.connectionName>>"<<?>>
 	explore: <<:x.explore.name>> {
