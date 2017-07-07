@@ -1,7 +1,7 @@
 <!doctype html >
 <html>
 <head>
-<script>var version={v:"1.1.2",date:"2017-07-05"}</script>
+<script>var version={v:"1.2.0",date:"2017-07-07"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -17,6 +17,10 @@
  .tabs-content>div>h3{overflow: hidden; text-overflow: ellipsis;max-height:4em;white-space: pre-line;}
  #json-editor input+p{display:none}
  #json-editor input:focus+p{display:block}
+ #json-editor textarea+p{display:none}
+ #json-editor textarea:focus+p{display:block}
+ #json-editor select+p{display:none}
+ #json-editor select:focus+p{display:block}
 </style>
 <script>
 	// Set the JSONEditor CSS theme and icon library globally
@@ -178,6 +182,7 @@
 		<ul style="font-size:0.8em; font-family:serif; color:#333;">
 			<li> This is a static HTML file and can be used locally. If you are running it from a shared domain, other scripts on that domain may have access to data you enter here.</li>
 			<li> For more information on why this is cool, read <a href="https://discourse.looker.com/t/outer-join-on-false-or-how-i-learned-to-stop-fanning-out-and-love-the-null/4786">my Discourse post</a>
+			<li> Please <a href="https://github.com/fabio-looker/ojof-builder/issues">submit any issues</a> with the generator to the github repo</li>
 		</ul>
 	</div>
 	<div>
@@ -328,12 +333,16 @@
 																	sql:{propertyOrder:2,title:"SQL",type:"string", pattern:pat.sql},
 																	type:{propertyOrder:3,title:"Datatype",type:"string",enum:["","string","number","date"/*,"yesno" helltool/issues/13948 */]},
 																	dim:{propertyOrder:4,type:"boolean",format:"checkbox",title:"Dimension"},
+																	smy:{propertyOrder:5,type:"boolean",format:"checkbox",title:"Summary"},
 																	sum:{propertyOrder:6,type:"boolean",format:"checkbox",title:"Sum"},
 																	avg:{propertyOrder:7,type:"boolean",format:"checkbox",title:"Average"},
 																	min:{propertyOrder:8,type:"boolean",format:"checkbox",title:"Min"},
 																	max:{propertyOrder:9,type:"boolean",format:"checkbox",title:"Max"},
-																	list:{propertyOrder:10,type:"boolean",format:"checkbox",title:"List"},
-																	codim:{propertyOrder:11,
+																	first:{propertyOrder:10,type:"boolean",format:"checkbox",title:"First"},
+																	last:{propertyOrder:11,type:"boolean",format:"checkbox",title:"Last"},
+																	list:{propertyOrder:12,type:"boolean",format:"checkbox",title:"List"},
+																	firstLastBy:{title:"First/last by",type:"string",pattern:pat.atomOrNone,description:"If First or Last measures are selected, specifiy the column that will determine the ordering"},
+																	codim:{propertyOrder:13,
 																			type:"string",
 																			title:"Conformed Dimension",
 																			watch:{codims:"codims"},
@@ -345,9 +354,10 @@
 																					source:"codims",
 																					title:"{{item.label}}",
 																					value:"{{item.label}}_{{i}}"
-																				}]
+																				}],
+																			description:"Once you have declared Conformed Dimensions in the previous section, you may reference one of them here if this field should participate in a conformed dimension"
 																		},
-																	"otherLookml":{propertyOrder:1001,title:"Other LookML", type:"string", format:"textarea"}
+																	"otherLookml":{propertyOrder:1001,title:"Other LookML", type:"string", format:"textarea",description:"Additional LookML to include with the field(s). This LookML will be repeated for each mode (i.e., Dimension, Sum, etc.). If different LookML is required per mode, create separate fields for those modes."}
 																}
 														}
 												}
@@ -478,8 +488,16 @@
 									n:fi,
 									viewName:v.name,
 									name:lookmlName(f.label)+"_"+fi,
-									dim:f.dim && f.type!="date",
-									ddg:f.dim && f.type=="date",
+									dim:f.dim /*~f.modes.indexOf("dim")*/ && f.type!="date",
+									ddg:f.dim /*~f.modes.indexOf("dim")*/ && f.type=="date",
+									/*smy:~f.modes.indexOf("smy"),
+									sum:~f.modes.indexOf("sum"),
+									avg:~f.modes.indexOf("avg"),
+									min:~f.modes.indexOf("min"),
+									max:~f.modes.indexOf("max"),
+									first:~f.modes.indexOf("first"),
+									last:~f.modes.indexOf("last") && !!f.firstLastBy,
+									list:~f.modes.indexOf("list") && !!f.firstLastBy,*/
 									codim:f.codim?lookmlName(f.codim):undefined,
 									sql:(f.sql||'').match(singleColRegex)
 										?"${TABLE}."+f.sql
@@ -890,10 +908,55 @@
 			sql: CASE WHEN MIN(${pk}) IS NULL THEN NULL ELSE COUNT(${pk}) END ;;
 		}
 		<<*view.fields :field>>
+		<<?field.smy>>
+		measure: smy_<<:field.name>> {
+			type: string
+			label: "<<:field.label>>"
+			<<? x.dialect=="Redshift">>
+			sql:CASE
+			 	WHEN MIN(<<:field.mSql>>) = MAX(<<:field.mSql>>)
+				THEN MIN(<<:field.mSql>>)
+				ELSE 
+					CASE COUNT(<<:field.mSql>>)
+					WHEN 0 THEN NULL
+					WHEN 1 THEN MIN(<<:field.mSql>>)::VARCHAR
+					WHEN 2 THEN MIN(<<:field.mSql>>)::VARCHAR || ',' 
+								|| MAX(<<:field.mSql>>)::VARCHAR
+					ELSE 		MIN(<<:field.mSql>>)::VARCHAR || ' ...(+'
+								|| TO_CHAR(COUNT(<<:field.mSql>>)-2,'999,999,999,999')|| ')... ' 
+								|| MAX(<<:field.mSql>>)::VARCHAR
+					END
+				END
+			;;
+			<<?>>
+			<<? x.dialect=="BigQuery Standard">>
+			sql:CASE
+			 	WHEN MIN(<<:field.mSql>>) = MAX(<<:field.mSql>>)
+				THEN MIN(<<:field.mSql>>)
+				ELSE 
+					CASE COUNT(<<:field.mSql>>)
+					WHEN 0 THEN NULL
+					WHEN 1 THEN CAST(MIN(<<:field.mSql>>) as STRING)
+					WHEN 2 THEN CONCAT(
+								  CAST(MIN(<<:field.mSql>>) as STRING), ',' 
+								, CAST(MAX(<<:field.mSql>>) as STRING)
+								)
+					ELSE 		CONCAT(
+								  CAST(MIN(<<:field.mSql>>) as STRING), ' ...(+'
+								, CAST(COUNT(<<:field.mSql>>) as STRING), ')... ' 
+								, CAST(MAX(<<:field.mSql>>) as STRING)
+					END
+				END
+			;;
+			<<?>>
+			<<:field.otherLookml>>
+		}
+		<<?>>
+		
 		<<?field.sum>>
 		measure: sum_<<:field.name>> {
 			type: number
-			label: "Sum of <<:field.label>>"
+			label: "<<:field.label>>: Sum"
 			sql: SUM(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
@@ -902,7 +965,7 @@
 		<<?field.avg>>
 		measure: avg_<<:field.name>> {
 			type: number
-			label: "Average of <<:field.label>>"
+			label: "<<:field.label>>: Avg"
 			sql: AVG(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
@@ -914,7 +977,7 @@
 			<<?field.type=="date">>
 			label: "Earliest <<:field.label>>"
 			<<??>>
-			label: "Max of <<:field.label>>"
+			label: "<<:field.label>>: Min"
 			<<?>>
 			sql: MIN(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
@@ -927,17 +990,66 @@
 			<<?field.type=="date">>
 			label: "Latest <<:field.label>>"
 			<<??>>
-			label: "Max of <<:field.label>>"
+			label: "<<:field.label>>: Max"
 			<<?>>
 			sql: MAX(<<:field.mSql>>) ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
-
+		<<?field.first>>
+		measure: first_<<:field.name>> {
+			type: string
+			label: "<<:field.label>>: First"
+			<<? x.dialect=="Redshift">>
+			sql:
+				SUBSTRING( MIN(
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(<<:view.mTable>>.<<:field.firstLastBy>>::VARCHAR,20)
+					|| '~' || 
+					<<:field.mSql>>::VARCHAR
+				) FROM 22)
+			;;
+			<<?>>
+			<<? x.dialect=="BigQuery Standard">>
+			sql:
+				SUBSTR( MIN( CONCAT(
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(CAST(<<:view.mTable>>.<<:field.firstLastBy>> as STRING),20)
+					, '~' , 
+					CAST(<<:field.mSql>> as STRING)
+				)), 22)
+			;;
+			<<?>>
+			<<:field.otherLookml>>
+		}
+		<<?>>
+		<<?field.last>>
+		measure: last_<<:field.name>> {
+			type: string
+			label: "<<:field.label>>: Last"
+			<<? x.dialect=="Redshift">>
+			sql:
+				SUBSTRING( MAX(
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(<<:view.mTable>>.<<:field.firstLastBy>>::VARCHAR,20)
+					|| '~' || 
+					<<:field.mSql>>::VARCHAR
+				) FROM 22)
+			;;
+			<<?>>
+			<<? x.dialect=="BigQuery Standard">>
+			sql:
+				SUBSTR( MAX( CONCAT(
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(CAST(<<:view.mTable>>.<<:field.firstLastBy>> as STRING),20)
+					, '~' , 
+					CAST(<<:field.mSql>> as STRING)
+				)), 22)
+			;;
+			<<?>>
+			<<:field.otherLookml>>
+		}
+		<<?>>
 		<<?field.list>>
 		measure: list_<<:field.name>> {
 			type: string
-			label: "List of <<:field.label>>"
+			label: "<<:field.label>>: List"
 			<<? x.dialect=="Redshift">>sql: LISTAGG(<<:field.mSql>>,', ') ;;<<?>>
 			<<? x.dialect=="BigQuery Standard">>sql: GROUP_CONCAT(<<:field.mSql>>) ;;<<?>>
 			<<:field.otherLookml>>
