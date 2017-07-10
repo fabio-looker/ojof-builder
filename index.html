@@ -1,7 +1,7 @@
 <!doctype html >
 <html>
 <head>
-<script>var version={v:"1.2.0",date:"2017-07-07"}</script>
+<script>var version={v:"1.2.1",date:"2017-07-10"}</script>
 <title>LookML Builder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha256-eZrrJcwDc/3uDhsdt61sL2oOBY362qM3lon1gyExkL0=" crossorigin="anonymous" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.3/css/foundation.min.css" integrity="sha256-NTds7atVCDeolLUzbcl45lx4gJYO+hNXCaX1wC2HQHc=" crossorigin="anonymous" />
@@ -605,7 +605,7 @@
 	# Generated on <<:(new Date()).toISOString().slice(0,10)>>
 	# https://fabio-looker.github.io/ojof-builder/#o=<<:rison.encode_uri(x.original)>>
 
-	<<?x.connectionName>>connection: "<<:x.connectionName>>"<<?>>
+	<<?x.connectionName.trim()>>connection: "<<:x.connectionName>>"<<?>>
 	explore: <<:x.explore.name>> {
 		label:"<<:x.explore.label>>"
 
@@ -762,13 +762,18 @@
 					<<* x.views :view:v>>
 					<<* view.fields :field:f>>
 						<<? field.codim == codim.name >>
-							{%	if <<:view.dFields>>._in_query
+							/*${<<:view.mFields>>.require}*/
+							{%	if <<:view.mFields>>._in_query
+								or <<:view.dFields>>._in_query
 								<<* lefterViews(view) :left:l>>
+								or <<:left.mFields>>._in_query
 								or <<:left.dFields>>._in_query
 								<<*>>
 							%}
-							{%	if <<:view.dFields>>._in_query
+							{%	if <<:view.mFields>>._in_query
+								or <<:view.dFields>>._in_query
 								<<* righterViews(view) :right:r>>
+								or <<:right.mFields>>._in_query
 								or <<:right.dFields>>._in_query
 								<<*>>
 							%}
@@ -781,28 +786,6 @@
 									END,
 								<<??>>
 									<<:field.dSql>>,
-								<<?>>
-							{% endif %}
-							{% endif %}
-							{%	if <<:view.mFields>>._in_query
-								<<* lefterViews(view) :left:l>>
-								or <<:left.mFields>>._in_query
-								<<*>>
-							%}
-							{% if <<:view.mFields>>._in_query
-								<<* righterViews(view) :right:r>>
-								or <<:right.mFields>>._in_query
-								<<*>>
-							%}
-								<<? view.fields.filter(field2=>field2.codim==field.codim).length>1 >>
-									CASE WHEN	{% condition <<:view.dFields>>.codim_switch_<<:codim.name>> %}
-												<<:sqlString(field.label)>>
-												{% endcondition %}
-										 THEN <<:field.mSql>>
-										 ELSE NULL
-									END,
-								<<??>>
-									<<:field.mSql>>,
 								<<?>>
 							{% endif %}
 							{% endif %}
