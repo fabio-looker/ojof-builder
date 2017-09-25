@@ -440,7 +440,6 @@
 		};
 
 	function customTransform (x){
-			var pdtRegex=/^\s*\$\{([a-zA-Z_][a-zA-Z0-9_$]*)\.SQL_TABLE_NAME\}\s*$/
 			var singleColRegex=/^[_a-zA-Z][_a-zA-Z0-9$]*$|^"[^"]+"$/
 			return Object.assign({},x,{
 					generator:version,
@@ -451,37 +450,7 @@
 					views:x.views.map((v,vi)=>Object.assign({},v,{
 							n:vi,
 							name:lookmlName(v.label)+"_v"+vi,
-							//Deprecated
-							// mName:lookmlName(v.label)+"_"+vi+"m",
-							// dName:lookmlName(v.label)+"_"+vi+"d",s
-							//To
-							//Base Table: Used in the table view's name
-							bTable: lookmlName(v.label)+"_v"+vi+"_tbl",
-							//Measure table: Join alias for the table view for measure fields
-							mTable: lookmlName(v.label)+"_v"+vi+"_msr_tbl",
-							//Dimension table: Join alias of the base table for dimension fields
-							dTable: lookmlName(v.label)+"_v"+vi+"_dim_tbl",
-							isLeftmost: x.normalizedRelationships.find(r=>lookmlName(r.rightViewName)==lookmlName(v.label)+"_"+vi),
-							//Measure fields: View name (& implicit join name) for the measure fields
-							mFields: lookmlName(v.label)+"_v"+vi+"_msr_fld",
-							//Dimension fields: View name (& implicit join name) for the dimension fields
-							dFields: lookmlName(v.label)+"_v"+vi+"_dim_fld",
-
-							isTableRef:!!v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)?\s*$/),
-							tableType:
-									v.table.match(/^\s*[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)?\s*$/)
-									? "table"
-									: v.table.match(pdtRegex)
-									? "pdt"
-									: "sql",
-							pdtName:(v.table.match(pdtRegex)||[])[1]
-						})).map((v,vi)=>Object.assign({},v,{
-							//TODO: Once helltool/issues/30044 is fixed, move ^this logic into lookML
-							//		so that it applies based on which tables are actually in the query (if ! lefterViews(view)._in_query)
-							//		rather than just which tables are in the explore
-							dTable: v.isLeftmost
-							? v.mTable
-							: v.dTable //If there are no lefter tables, take dimensions from the measure table
+							dName:lookmlName(v.label)+"_v"+vi+"_dim"
 						})).map((v,vi)=>Object.assign({},v,{
 							fields:v.fields.map((f,fi)=>Object.assign({},f,{
 									n:fi,
@@ -502,9 +471,11 @@
 										?"${TABLE}."+f.sql
 										:f.sql
 								})).map((f,fi)=>Object.assign({},f,{
-									bSql:f.sql.replace(/\$\{TABLE\}/g, v.bTable),
-									mSql:f.sql.replace(/\$\{TABLE\}/g, v.mTable),
-									dSql:f.sql.replace(/\$\{TABLE\}/g, v.dTable)
+									bSql:f.sql.replace(/\$\{TABLE\}/g, v.name),
+									mSql:f.sql.replace(/\$\{TABLE\}/g, "${msr}"),
+									dSql:f.sql.replace(/\$\{TABLE\}/g, "${dim}"),
+									mSqlExternal:f.sql.replace(/\$\{TABLE\}/g, "${"+v.name+".msr}"),
+									dSqlExternal:f.sql.replace(/\$\{TABLE\}/g, "${"+v.name+".dim}")
 								}))
 						})),
 					normalizedRelationships:x.normalizedRelationships.map((r,ri)=>Object.assign({},r,{
@@ -514,8 +485,7 @@
 					codims:x.codims.map((c,ci)=>Object.assign({},c,{
 							n:ci,
 							name:lookmlName(c.label)+"_c"+ci,
-							dFields:lookmlName(c.label)+"_c"+ci,
-							mFields:lookmlName(c.label)+"_c"+ci
+							dName:lookmlName(c.label)+"_c"+ci
 						}))
 				});
 		}
@@ -580,7 +550,7 @@
 				}
 		};
 	function measureNames(view){
-			return (["sum","avg","min","max","list"]
+			return (["smy","sum","avg","min","max","first","last","list"]
 					.map(measureType=>view.fields.map(field=>field[measureType] && measureType+"_"+field.name))
 					.reduce(flatten,["count_pk"])
 					.filter(truthy)
@@ -596,7 +566,7 @@
 									field[dimensionType.flag] && dimensionType.prefix+field.name+dimensionType.suffix
 								)
 						)
-					.reduce(flatten,["dim_pk"])
+					.reduce(flatten,viewOrField.pk?["dim_pk"]:[])
 					.filter(truthy)
 				)
 		};
@@ -609,21 +579,31 @@
 	function if_if_ViewShouldBeJoinedLiquid(view){
 			var out="";
 			>>	
-			{%	if <<:view.mFields>>._in_query
-				or <<:view.dFields>>._in_query
+			{%	if <<:view.name>>._in_query
+				or <<:view.dName>>._in_query
 				<<* lefterViews(view) :left:l>>
-				or <<:left.mFields>>._in_query
-				or <<:left.dFields>>._in_query
+				or <<:left.name>>._in_query
+				or <<:left.dName>>._in_query
 				<<*>>
 			%}
-			{%	if <<:view.mFields>>._in_query
-				or <<:view.dFields>>._in_query
+			{%	if <<:view.name>>._in_query
+				or <<:view.dName>>._in_query
 				<<* righterViews(view) :right:r>>
-				or <<:right.mFields>>._in_query
-				or <<:right.dFields>>._in_query
+				or <<:right.name>>._in_query
+				or <<:right.dName>>._in_query
 				<<*>>
 			%}
 			<<! return out;
+		};
+	function dimOrNotLiquid(view){
+			var out="";
+			>>{% if '0' == '1'
+				<<* lefterViews(view) :left:l>>
+				or <<:left.name>>._in_query
+				or <<:left.dName>>._in_query
+				<<*>>
+			%}_dim{% endif
+			%}<<! return out;
 		};
 	>>
 	# Warning:  This file is programatically generated (Your changes will be overwritten)
@@ -640,89 +620,82 @@
 
 		## Measure table joins
 		<<* x.views :view:v >>
-		join: <<:view.mTable>> {
-			from: <<:view.bTable>>
-			type: full_outer
+		join: <<:view.name>> {
+			fields:[measures*]
 			relationship: one_to_one
 			sql:				
-			<<:if_if_ViewShouldBeJoinedLiquid(view)>>
-			FULL OUTER JOIN <<:view.bTable>>
-			AS <<:view.mTable>>
-			ON <<? x.dialect=="BigQuery Standard" >> FALSE
-			<<?? x.dialect=="Redshift" >>/* FALSE -- Redshift only allows FOJ on merge joins, which require dist & sort key equality*/
-				<<:view.mTable>>.<<:view.rs.dist>> = ${<<:x.explore.name>>.base}
-				AND <<:view.mTable>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base}
-				<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
-				<<: if_if_ViewShouldBeJoinedLiquid(prior)>>
-				AND <<:view.mTable>>.<<:view.rs.dist>> = <<:prior.mTable>>.<<:prior.rs.dist>>
-				AND <<:view.mTable>>.<<:view.rs.sort>> = <<:prior.mTable>>.<<:prior.rs.sort>>
+				<<:if_if_ViewShouldBeJoinedLiquid(view)>>
+				FULL OUTER JOIN <<:view.name>>
+				ON <<? x.dialect=="BigQuery Standard" >> FALSE
+				<<?? x.dialect=="Redshift" >>/* FALSE -- Redshift only allows FOJ on merge joins, which require dist & sort key equality*/
+					<<:view.name>>.<<:view.rs.dist>> = ${<<:x.explore.name>>.base}
+					AND <<:view.name>>.<<:view.rs.sort>> = ${<<:x.explore.name>>.base}
+					<<* x.views.filter(prior=>prior.n<view.n) :prior:p >>
+					<<: if_if_ViewShouldBeJoinedLiquid(prior)>>
+					AND <<:view.name>>.<<:view.rs.dist>> = <<:prior.name>>.<<:prior.rs.dist>>
+					AND <<:view.name>>.<<:view.rs.sort>> = <<:prior.name>>.<<:prior.rs.sort>>
+					{% endif %}{% endif %}
+					<<*>>
+		 		<<?>>
 				{% endif %}{% endif %}
-				<<*>>
-	 		<<?>>
-			{% endif %}{% endif %}
 			;;
 		}
 		<<*>>
 
 		#Selected "Dimension table" joins
 		<<* x.views :view:v >>
-		<<? view.isLeftmost>><<!continue;>> #Skip if leftmost, since dimensions will come from the measure table <<?>>
-		join: <<:view.dTable>> {
-			from: <<:view.bTable>>
+		join: <<:view.dName>> {
+			from: <<:view.name>>
+			fields:[dimensions*, codim_selectors*]
+			relationship:many_to_one
 			required_joins:[
-				<<:view.mTable>>
-				<<* lefterViews(view) :left>>, <<:left.dTable>><<*>>
+				<<:view.name>>
+				<<* lefterViews(view) :left>>, <<:left.dName>><<*>>
 			]
-			type: left_outer
-			relationship: many_to_one
 			sql:
-			<<:if_if_ViewShouldBeJoinedLiquid(view)>>
-				LEFT JOIN <<:view.bTable>>
-					AS <<:view.dTable>> 
-					ON <<:view.dTable>>.<<:view.pk.key>> =
-					COALESCE(<<:view.mTable>>.<<:view.pk.key>>,
-					<<* x.normalizedRelationships.filter(r=>r.rightViewName==view.name) :rel>>
-						<<!let leftView=viewFromName(rel.leftViewName);>>
-						<<: if_if_ViewShouldBeJoinedLiquid(leftView) >>
-							<<:leftView.dTable>>.<<:rel.foreignKey>>,
-						{% endif %}{% endif %}
+				<<:if_if_ViewShouldBeJoinedLiquid(view)>>
+					{% if '0' == '1'
+						<<* lefterViews(view) :left>>
+						or <<:left.name>>._in_query
+						or <<:left.dName>>._in_query
+						<<*>>
+					%}--Lefter joins in query, dimension table required
+					LEFT JOIN <<:view.name>>
+						AS <<:view.dName>> 
+						ON <<:view.dName>>.<<:view.pk.key>> =
+						COALESCE(<<:view.name>>.<<:view.pk.key>>,
+						<<* x.normalizedRelationships.filter(r=>r.rightViewName==view.name) :rel>>
+							<<!let left=viewFromName(rel.leftViewName);>>
+							<<: if_if_ViewShouldBeJoinedLiquid(left) >>
+								<<:left.name>><<:dimOrNotLiquid(left)>>.<<:rel.foreignKey>>,
+							{% endif %}{% endif %}
+						<<*>>
+						NULL)
+						
+					<<? x.dialect=="Redshift" && view.rs.distgroup >>
+					--Distkey equality (unless incompatible parents are in query)
+					<<* leftViews(view).filter(l=>l.rs.distgroup!=view.rs.distgroup) :badLeftView>>
+					<<: if_if_ViewShouldBeJoinedLiquid(badLeftView) >>
+						/*<<:badLeftView.name>> is in query and has distgroup <<:badLeftView.rs.distgroup>>. Prevent distkey equality
+						{% endif %}{% if '1'=='0' %}*/
+					{% endif %}{% endif %}
 					<<*>>
-					NULL)
-				<<? x.dialect=="Redshift" && view.rs.distgroup >>
-				--Distkey equality (unless incompatible parents are in query)
-				<<* leftViews(view).filter(l=>l.rs.distgroup!=view.rs.distgroup) :badLeftView>>
-				<<: if_if_ViewShouldBeJoinedLiquid(badLeftView) >>
-					/*<<:badLeftView.name>> is in query and has distgroup <<:badLeftView.rs.distgroup>>. Prevent distkey equality
-					{% endif %}{% if '1'=='0' %}*/
-				{% endif %}{% endif %}
-				<<*>>
-				AND <<:view.dTable>>.<<:view.rs.dist>> =
-					COALESCE(<<:view.mTable>>.<<:view.rs.dist>>,
-					<<* leftViews(view) :leftView>>
-						<<: if_if_ViewShouldBeJoinedLiquid(leftView) >>
-							<<:leftView.dTable>>.<<:leftView.rs.dist>>,
-						{% endif %}{% endif %}
-					<<*>>
-					NULL)
-				<<?>>
-				-- End conditional distkey */
-			{% else %}	/* No righter view in query. Prevent <<:view.dTable>> */ {% endif %}
-			{% else %}	/* No lefter view in query. Prevent <<:view.dTable>> */ {% endif %}
+					AND <<:view.dName>>.<<:view.rs.dist>> =
+						COALESCE(<<:view.name>>.<<:view.rs.dist>>,
+						<<* leftViews(view) :left>>
+							<<: if_if_ViewShouldBeJoinedLiquid(left) >>
+								<<:left.name>><<:dimOrNotLiquid(left)>>.<<:left.rs.dist>>,
+							{% endif %}{% endif %}
+						<<*>>
+						NULL)
+					<<?>>
+					-- End conditional distkey */
+					{% else %}
+					-- No lefter view in query. Take all dimensions from measure table
+					{% endif %}
+				{% else %}	/* No self|righter view in query. Prevent <<:view.dName>> */ {% endif %}
+				{% else %}	/* No self|lefter view in query. Prevent <<:view.dName>> */ {% endif %}
 			;;
-		}
-		<<*>>
-		
-		## Field joins
-		<<* x.views :view:v>>
-		join: <<:view.mFields>> {
-			sql: ;;
-			required_joins:[<<:view.mTable>>]
-			relationship: one_to_one
-		}
-		join: <<:view.dFields>>{
-			sql: ;;
-			required_joins:[<<: view.isLeftmost ? "" : view.dTable >>]
-			relationship: one_to_one
 		}
 		<<*>>
 		
@@ -732,14 +705,13 @@
 			sql: ;;
 			required_joins:[
 				<<*x.views.filter(v=>v.fields.some(f=>f.codim==codim.name)) :view:v>>
-				<<?v>0>>,<<?>> <<:view.dTable>> <<*>>
+				<<?v>0>>,<<?>> <<:view.dName>> <<*>>
 			]
 			relationship: one_to_one
 		}
 		<<*>>
 	}
 
-	view: nothing {}
 	#"Base" (empty) View
 	view: <<:x.explore.name>> {
 		view_label: "[<<:x.explore.label>>]"
@@ -758,6 +730,7 @@
 			sql: ${TABLE}.base ;;
 		}
 	}
+	
 	#Codim "views"
 	<<* x.codims :codim:c>>
 	view: <<:codim.name>> {
@@ -778,14 +751,14 @@
 						<<? field.codim == codim.name >>
 							<<:if_if_ViewShouldBeJoinedLiquid(view)>>
 								<<? view.fields.filter(field2=>field2.codim==field.codim).length>1 >>
-									CASE WHEN	{% condition <<:view.dFields>>.codim_switch_<<:codim.name>> %}
+									CASE WHEN	{% condition <<:view.dName>>.cs_<<:codim.name>> %}
 												<<:sqlString(field.label)>>
 												{% endcondition %}
-										 THEN	<<:field.dSql>>
+										 THEN	<<:field.dSqlExternal>>
 										 ELSE NULL
 									END,
 								<<??>>
-									<<:field.dSql>>,
+									<<:field.dSqlExternal>>,
 								<<?>>
 							{% endif %}
 							{% endif %}
@@ -793,19 +766,20 @@
 					<<*>>
 					<<*>>
 					NULL
-				);;
-			}
+				)
+				;;
 		}
-		<<*>>
+	}
+	<<*>>
 
-		# Maybe add this pattern to the generator too?
-		#
-		#measure: product_conversion_rate {
-		#	type: number
-		#	value_format_name: decimal_3
-		#	sql: CASE WHEN ${pageviews.count}<>0 THEN ${orders.count} / ${pageviews.count} ELSE NULL END;;
-		#}
-		#
+	# Maybe add this pattern to the generator too?
+	#
+	#measure: product_conversion_rate {
+	#	type: number
+	#	value_format_name: decimal_3
+	#	sql: CASE WHEN ${pageviews.count}<>0 THEN ${orders.count} / ${pageviews.count} ELSE NULL END;;
+	#}
+	#
 
 	#####################################
 	#
@@ -813,18 +787,20 @@
 	#
 	#####################################
 	<<* x.views :view >>
-	view: <<:view.bTable>> {
+	view: <<:view.name>> {
+		label: "<<:view.label>>"
+		# Use DT (instead of subselect in sql_table_name) to ensure you can reference ${foo.SQL_TABLE_NAME} if the user tries to use that
 		derived_table: {
 			sql:
 			<<:if_if_ViewShouldBeJoinedLiquid(view)>>
-				SELECT *
-				FROM <<:view.table>> as <<:view.bTable>>
+				SELECT * <<!/*TODO: See if query optimizer optimizes this? If not, specify columns, which is hard, because at the moment, I just have fields, which may recursively expand to arbitrary column references */>>
+				FROM <<:view.table>> AS <<:view.name>>
 				WHERE 1=1
 				<<* view.fields :field:f>>
 					<<!/* Push dimension filters onto the associated measure tables */>>
 					<<* dimensionNames(field) :dim:d>>
-							{% if <<:view.dFields>>.<<:dim>>._is_filtered %}
-								AND {% condition <<:view.dFields>>.<<:dim>> %} <<:field.bSql>> {% endcondition %}
+							{% if <<:view.dName>>.<<:dim>>._is_filtered %}
+								AND {% condition <<:view.dName>>.<<:dim>> %} <<:field.bSql>> {% endcondition %}
 							{% endif %}
 					<<*>>
 					<<!/* Push codim filters onto the associated dimension and measure tables */>>
@@ -834,7 +810,7 @@
 							{% if <<:codim.name>>.<<:typedName>>._is_filtered %}
 								<<? view.fields.filter(field2=>field2.codim==field.codim).length>1 >>
 								AND CASE
-									WHEN {% condition <<:view.dFields>>.codim_switch_<<:codim.name>> %}
+									WHEN {% condition <<:view.dName>>.cs_<<:codim.name>> %}
 										 <<:sqlString(field.label)>>
 										 {% endcondition%}
 									THEN {% condition <<:codim.name>>.<<:typedName>> %}
@@ -857,33 +833,50 @@
 			SELECT NULL as x {% endif %}
 			;;
 		}
-	}
-	view: <<:view.mFields>> {
-		label: "<<:view.label>>"
+		
+		#
+		#  Table aliases
+		#
+		
+		dimension: msr {
+			hidden: yes
+			sql: ${TABLE} ;;
+		}
+		dimension: dim {
+			hidden: yes
+			sql: ${TABLE}<<:dimOrNotLiquid(view)>> ;;
+		}
+		
+		#
+		#  Keys
+		#
+		
 		<<?x.dialect=="Redshift">>
 		dimension: dist{
 			hidden: yes
-			sql:<<:view.mTable>>.<<:view.rs.dist>>;;
+			sql:${TABLE}.<<:view.rs.dist>>;;
 		}
 		dimension: sort{
 			hidden: yes
-			sql:<<:view.mTable>>.<<:view.rs.sort>>;;
+			sql:${TABLE}.<<:view.rs.sort>>;;
 		}
 		<<?>>
-		dimension: require {
-			hidden:yes
-			sql: ;;
-		}
 		dimension: pk {
 			hidden: yes
-			sql: <<:view.mTable>>.<<:view.pk.key>>;;
+			sql: ${TABLE}.<<:view.pk.key>>;;
 		}
-
+		
+		#
+		# Measures
+		#
+		set: measures {
+			fields: [<<:measureNames(view).join(", ")>>]
+		}
 		measure: count_pk {
 			hidden: <<:view.pk.count ? "no" : "yes">>
 			label: "<<:view.label>> Count"
 			type: number
-			sql: CASE WHEN MIN(${pk}) IS NULL THEN NULL ELSE COUNT(${pk}) END ;;
+			sql: CASE WHEN MIN(${msr}.<<:view.pk.key>>) IS NULL THEN NULL ELSE COUNT(${msr}.<<:view.pk.key>>) END ;;
 		}
 		<<*view.fields :field>>
 		<<?field.smy>>
@@ -981,7 +974,7 @@
 			<<? x.dialect=="Redshift">>
 			sql:
 				SUBSTRING( MIN(
-					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(<<:view.mTable>>.<<:field.firstLastBy>>::VARCHAR,20)
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(${msr}.<<:field.firstLastBy>>::VARCHAR,20)
 					|| '~' || 
 					<<:field.mSql>>::VARCHAR
 				) FROM 22)
@@ -990,7 +983,7 @@
 			<<? x.dialect=="BigQuery Standard">>
 			sql:
 				SUBSTR( MIN( CONCAT(
-					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(CAST(<<:view.mTable>>.<<:field.firstLastBy>> as STRING),20)
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(CAST(${msr}.<<:field.firstLastBy>> as STRING),20)
 					, '~' , 
 					CAST(<<:field.mSql>> as STRING)
 				)), 22)
@@ -1006,7 +999,7 @@
 			<<? x.dialect=="Redshift">>
 			sql:
 				SUBSTRING( MAX(
-					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(<<:view.mTable>>.<<:field.firstLastBy>>::VARCHAR,20)
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(${msr}.<<:field.firstLastBy>>::VARCHAR,20)
 					|| '~' || 
 					<<:field.mSql>>::VARCHAR
 				) FROM 22)
@@ -1015,7 +1008,7 @@
 			<<? x.dialect=="BigQuery Standard">>
 			sql:
 				SUBSTR( MAX( CONCAT(
-					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(CAST(<<:view.mTable>>.<<:field.firstLastBy>> as STRING),20)
+					<<?field.type=="number">>LPAD<<??>>RPAD<<?>>(CAST(${msr}.<<:field.firstLastBy>> as STRING),20)
 					, '~' , 
 					CAST(<<:field.mSql>> as STRING)
 				)), 22)
@@ -1034,24 +1027,25 @@
 		}
 		<<?>>
 		<<*>>
-	}
-	view: <<:view.dFields>> {
-		label: "<<:view.label>>"
-		dimension: pk {
-			hidden: yes
-			sql: <<:view.dTable>>.<<:view.pk.key>>;;
+
+		#
+		#  Dimensions
+		#
+		
+		set: dimensions {
+			fields: [<<:dimensionNames(view).join(", ")>>]
 		}
 		dimension: dim_pk {
 			hidden: <<:view.pk.dim ? "no" : "yes">>
 			label: "<<:view.label>> ID"
-			sql: <<:view.dTable>>.<<:view.pk.key>>  /* ${<<:view.mFields>>.require}*/;;
+			sql: ${dim}.<<:view.pk.key>>  ;;
 		}
 		<<* view.fields :field>>
 		<<?field.dim>>
 		dimension: dim_<<:field.name>> {
 			<<?field.type>>type: <<:field.type>><<?>>
 			label: "<<:field.label>>"
-			sql: <<:field.dSql>> /* ${<<:view.mFields>>.require}*/;;
+			sql: <<:field.dSql>> ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
@@ -1061,22 +1055,31 @@
 			label: " "
 			type: time
 			timeframes: [<<:x.timeframes.join(",")>>]
-			sql: <<:field.dSql>>  /* ${<<:view.mFields>>.require}*/;;
+			sql: <<:field.dSql>> ;;
 			<<:field.otherLookml>>
 		}
 		<<?>>
 		<<*>>
 
+		#
+		#  Codim selectors
+		#
+		set: codim_selectors {
+			fields: [dim
+			<<* x.codims :codim>>
+				<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>,cs_<<:codim.name>><<?>>
+			<<*>>
+			]
+		}
 		<<* x.codims :codim:c>>
 			<<? view.fields.filter(f=>f.codim==codim.name).length>1 >>
-			filter: codim_switch_<<:codim.name>> {
+			filter: cs_<<:codim.name>> {
 				label: "<<?codim.type=='date'>>Date<<??>>Field<<?>> for <<:codim.label>>"
 				type: string
 				suggestions: ["<<:view.fields.filter(f=>f.codim==codim.name).map(f=>f.label).join('","')>>"]
 			}
 			<<?>>
 		<<*>>
-
 	}
 	<<*>>
 </script>
